@@ -4,7 +4,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Client struct {
+type SocketIOClient struct {
 	id      uuid.UUID
 	handler *Handler
 	// eClient   *eioClient
@@ -12,8 +12,8 @@ type Client struct {
 	onConnect func()
 }
 
-func newClient(namespace string) *Client {
-	var c = &Client{
+func newSocketIOClient(namespace string) *SocketIOClient {
+	var c = &SocketIOClient{
 		id:        uuid.New(),
 		namespace: namespace,
 	}
