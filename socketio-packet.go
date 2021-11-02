@@ -3,6 +3,8 @@ package siosver
 import (
 	"bytes"
 	"strconv"
+    "encoding/json"
+	"fmt"
 )
 
 type sioPacketType byte
@@ -21,7 +23,6 @@ type socketIOPacket struct {
 	packetType sioPacketType
 	namespace  string
 	id         int
-	rawdata    []byte
 	data       interface{}
 	argumentst []interface{}
 }
@@ -29,6 +30,7 @@ type socketIOPacket struct {
 func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOPacket {
 	packet := new(socketIOPacket)
 	packet.packetType = packetType
+	packet.id = -1
 
 	if len(data) > 0 {
 		switch data[0].(type) {
@@ -40,11 +42,21 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 			}
 
 		default:
-			packet.data = data
+			if len(data) == 1 {
+				packet.data = data[0]
+			} else {
+				packet.data = data
+			}
 		}
 	}
 	return packet
 }
+
+func (packet *socketIOPacket) ackId(id int) *socketIOPacket {
+	packet.id = id
+	return packet
+}
+
 func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 	if len(b) == 0 {
 		return nil
@@ -53,10 +65,7 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 	buf := bytes.NewBuffer(b)
 	tmpTypePacket, _ := buf.ReadByte()
 	typePacket := sioPacketType(tmpTypePacket)
-
-	var namespace string
-	var idAck string = "-1"
-	var data []byte
+	packet := newSocketIOPacket(typePacket)
 
 	if typePacket == __SIO_PACKET_BINARY_EVENT {
 		tmpNumOfBuffer, _ := buf.ReadString(byte('-'))
@@ -69,6 +78,10 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 	}
 
 	for {
+		if buf.Len() == 0 {
+			break
+		}
+
 		tmp, _ := buf.ReadByte()
 		buf.UnreadByte()
 
@@ -77,7 +90,7 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 			tmpNamespace, _ := buf.ReadString(byte(','))
 			strLen := len(tmpNamespace)
 			if strLen > 0 {
-				namespace = tmpNamespace[:strLen-1]
+				packet.namespace = tmpNamespace[:strLen-1]
 			}
 
 		} else if isSioPacketMessager(typePacket) && tmp >= byte('0') && tmp <= byte('9') {
@@ -85,38 +98,39 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 			tmpId, _ := buf.ReadString('[')
 			strLen := len(tmpId)
 			lastByte := byte(tmpId[strLen-1])
+
 			if lastByte < byte('0') || lastByte > byte('9') {
 				buf.UnreadByte()
 				strLen -= 1
 			}
-			idAck = tmpId[:strLen]
+
+			idAck := tmpId[:strLen]
+
+			ack, err := strconv.Atoi(idAck)
+			if err != nil {
+				return nil
+			}
+			
+			packet.id = ack
 
 		} else if tmp == byte('[') {
 			// get data
-			data, _ = buf.ReadBytes(byte(']'))
+			tmpData, _ := buf.ReadBytes(byte(']'))
+			json.Unmarshal(tmpData, &(packet.data))
 
 		} else if tmp == byte('{') {
 			// get data
-			data, _ = buf.ReadBytes(byte('}'))
+			tmpData, _ := buf.ReadBytes(byte('}'))
+			json.Unmarshal(tmpData, &(packet.data))
 
 		} else {
 			// get data
-			data = buf.Bytes()
+			packet.data = buf.Bytes()
 			break
 		}
 	}
 
-	ack, err := strconv.Atoi(idAck)
-	if err != nil {
-		return nil
-	}
-	packet := &socketIOPacket{
-		packetType: sioPacketType(typePacket),
-		namespace:  namespace,
-		id:         ack,
-		rawdata:    data,
-	}
-
+	fmt.Println(packet)
 	return packet
 }
 
