@@ -18,9 +18,9 @@ func Test_decodeToSocketIOPacket(t *testing.T) {
 		{
 			name: "Test Connect packet",
 			args: args{
-				b: []byte("0{\"token\":\"123\"}"),
+				b: []byte(`0{"token":"123"}`),
 			},
-			want: newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]string{"token": "123"}),
+			want: newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"token": "123"}),
 		},
 	}
 	for _, tt := range tests {
