@@ -57,7 +57,7 @@ func (packet *socketIOPacket) nameSpace(namespace string) *socketIOPacket {
 	return packet
 }
 
-func decodeToSocketIOPacket(b []byte) *socketIOPacket {
+func decodeAsSocketIOPacket(b []byte) *socketIOPacket {
 	if len(b) == 0 {
 		return nil
 	}
@@ -136,6 +136,7 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 	}
 
 	// read buffer
+	// TODO : read buffer and add to packet data
 
 	return packet
 }

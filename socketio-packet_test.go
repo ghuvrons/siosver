@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func Test_decodeToSocketIOPacket(t *testing.T) {
+func Test_decodeAsSocketIOPacket(t *testing.T) {
 	type args struct {
 		b []byte
 	}
@@ -134,17 +134,17 @@ func Test_decodeToSocketIOPacket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := decodeToSocketIOPacket(tt.args.b); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
+			if got := decodeAsSocketIOPacket(tt.args.b); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
 				// skip binary packet testing
 				if tt.want.packetType == __SIO_PACKET_BINARY_ACK || tt.want.packetType == __SIO_PACKET_BINARY_EVENT {
 					return
 				}
 
 				if got == nil {
-					t.Errorf("decodeToSocketIOPacket() got nil")
+					t.Errorf("decodeAsSocketIOPacket() got nil")
 					return
 				}
-				t.Errorf("decodeToSocketIOPacket() = %v, want %v", got, tt.want)
+				t.Errorf("decodeAsSocketIOPacket() = %v, want %v", got, tt.want)
 			}
 		})
 	}
