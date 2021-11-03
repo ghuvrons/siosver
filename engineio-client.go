@@ -1,6 +1,7 @@
 package siosver
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -98,7 +99,24 @@ func (eClient *engineIOClient) onData(b []byte) {
 	}
 }
 
-func (client *engineIOClient) handleRequest(b []byte) {
+// isBase64 default true
+func (client *engineIOClient) handleRequest(b []byte, isBase64 ...bool) {
+	buf := bytes.NewBuffer(b)
+	for {
+		if buf.Len() == 0 {
+			break
+		}
+
+		packet, _ := decodeAsEngineIOPacket(buf)
+
+		if packet.packetType == __EIO_PACKET_MESSAGE {
+			client.onData(packet.data)
+		}
+		// TODO : if packet.packetType == __EIO_PAYLOAD
+
+		// client.handleRequest(bytes, false)
+	}
+	return
 	// if client.isReadingBuffer {
 	// 	if numBuf := len(client.buffers); client.readBuffersIdx < numBuf {
 	// 		client.buffers[client.readBuffersIdx].b = b
@@ -111,11 +129,6 @@ func (client *engineIOClient) handleRequest(b []byte) {
 	// 	}
 	// 	return
 	// }
-
-	packet, _ := decodeAsEngineIOPacket(b)
-	if packet.packetType == __EIO_PACKET_MESSAGE {
-		client.onData(packet.data)
-	}
 }
 
 func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Request) {
