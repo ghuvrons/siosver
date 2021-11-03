@@ -23,7 +23,6 @@ type socketIOPacket struct {
 	namespace  string
 	ackId      int
 	data       interface{}
-	argumentst []interface{}
 }
 
 func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOPacket {
@@ -52,9 +51,20 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 	return packet
 }
 
-func (packet *socketIOPacket) nameSpace(namespace string) *socketIOPacket {
-	packet.namespace = namespace
-	return packet
+func (packet *socketIOPacket) encode() []byte {
+	// TODO : what if packet type is binary
+	// TODO : what if packet type has ack
+
+	buf := bytes.Buffer{}
+
+	buf.WriteByte(byte(packet.packetType))
+	if packet.namespace != "" {
+		buf.Write([]byte("/" + packet.namespace + ","))
+	}
+	rawdata, _ := json.Marshal(packet.data)
+	buf.Write(rawdata)
+
+	return buf.Bytes()
 }
 
 func decodeAsSocketIOPacket(b []byte) *socketIOPacket {
