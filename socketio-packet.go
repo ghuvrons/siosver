@@ -2,35 +2,35 @@ package siosver
 
 import (
 	"bytes"
+	"encoding/json"
 	"strconv"
-    "encoding/json"
-	"fmt"
 )
 
 type sioPacketType byte
 
 const (
-	__SIO_PACKET_CONNECT       sioPacketType = 0x30
-	__SIO_PACKET_DISCONNECT    sioPacketType = 0x31
-	__SIO_PACKET_EVENT         sioPacketType = 0x32
-	__SIO_PACKET_ACK           sioPacketType = 0x33
-	__SIO_PACKET_CONNECT_ERROR sioPacketType = 0x34
-	__SIO_PACKET_BINARY_EVENT  sioPacketType = 0x35
-	__SIO_PACKET_BINARY_ACK    sioPacketType = 0x36
+	__SIO_PACKET_CONNECT       sioPacketType = '0'
+	__SIO_PACKET_DISCONNECT    sioPacketType = '1'
+	__SIO_PACKET_EVENT         sioPacketType = '2'
+	__SIO_PACKET_ACK           sioPacketType = '3'
+	__SIO_PACKET_CONNECT_ERROR sioPacketType = '4'
+	__SIO_PACKET_BINARY_EVENT  sioPacketType = '5'
+	__SIO_PACKET_BINARY_ACK    sioPacketType = '6'
 )
 
 type socketIOPacket struct {
 	packetType sioPacketType
 	namespace  string
-	id         int
+	ackId      int
 	data       interface{}
 	argumentst []interface{}
 }
 
 func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOPacket {
-	packet := new(socketIOPacket)
-	packet.packetType = packetType
-	packet.id = -1
+	packet := &socketIOPacket{
+		packetType: packetType,
+		ackId:      -1,
+	}
 
 	if len(data) > 0 {
 		switch data[0].(type) {
@@ -52,8 +52,8 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 	return packet
 }
 
-func (packet *socketIOPacket) ackId(id int) *socketIOPacket {
-	packet.id = id
+func (packet *socketIOPacket) nameSpace(namespace string) *socketIOPacket {
+	packet.namespace = namespace
 	return packet
 }
 
@@ -66,16 +66,7 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 	tmpTypePacket, _ := buf.ReadByte()
 	typePacket := sioPacketType(tmpTypePacket)
 	packet := newSocketIOPacket(typePacket)
-
-	if typePacket == __SIO_PACKET_BINARY_EVENT {
-		tmpNumOfBuffer, _ := buf.ReadString(byte('-'))
-		tmpNumOfBuffer = tmpNumOfBuffer[:len(tmpNumOfBuffer)-1]
-		_, err := strconv.Atoi(tmpNumOfBuffer)
-
-		if err != nil {
-			return nil
-		}
-	}
+	packetBufIdx := 0
 
 	for {
 		if buf.Len() == 0 {
@@ -87,6 +78,7 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 
 		if tmp == byte('/') {
 			// get namespace
+			buf.ReadByte()
 			tmpNamespace, _ := buf.ReadString(byte(','))
 			strLen := len(tmpNamespace)
 			if strLen > 0 {
@@ -94,43 +86,57 @@ func decodeToSocketIOPacket(b []byte) *socketIOPacket {
 			}
 
 		} else if isSioPacketMessager(typePacket) && tmp >= byte('0') && tmp <= byte('9') {
-			// get ACK
-			tmpId, _ := buf.ReadString('[')
-			strLen := len(tmpId)
-			lastByte := byte(tmpId[strLen-1])
+			// get ACK or num of binary
+			var tmpNumber string
+			isGetNumOfBinary := false
+
+			// get string bytes
+			if packetBufIdx == 0 && (typePacket == __SIO_PACKET_BINARY_EVENT || typePacket == __SIO_PACKET_BINARY_ACK) {
+				isGetNumOfBinary = true
+				tmpNumber, _ = buf.ReadString('-')
+
+			} else {
+				tmpNumber, _ = buf.ReadString('[')
+			}
+
+			// convert string bytes to integer
+			strLen := len(tmpNumber)
+			lastByte := byte(tmpNumber[strLen-1])
 
 			if lastByte < byte('0') || lastByte > byte('9') {
 				buf.UnreadByte()
 				strLen -= 1
 			}
 
-			idAck := tmpId[:strLen]
-
-			ack, err := strconv.Atoi(idAck)
+			number, err := strconv.Atoi(tmpNumber[:strLen])
 			if err != nil {
 				return nil
 			}
-			
-			packet.id = ack
 
-		} else if tmp == byte('[') {
-			// get data
-			tmpData, _ := buf.ReadBytes(byte(']'))
-			json.Unmarshal(tmpData, &(packet.data))
+			// save
+			if isGetNumOfBinary {
+				buf.ReadByte()
+				packetBufIdx = number
 
-		} else if tmp == byte('{') {
+			} else {
+				packet.ackId = number
+			}
+
+		} else if tmp == byte('{') || tmp == byte('[') {
 			// get data
-			tmpData, _ := buf.ReadBytes(byte('}'))
-			json.Unmarshal(tmpData, &(packet.data))
+			dec := json.NewDecoder(buf)
+			if err := dec.Decode(&(packet.data)); err != nil {
+				return nil
+			}
+			break
 
 		} else {
-			// get data
-			packet.data = buf.Bytes()
-			break
+			return nil
 		}
 	}
 
-	fmt.Println(packet)
+	// read buffer
+
 	return packet
 }
 
