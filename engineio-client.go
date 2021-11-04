@@ -17,16 +17,12 @@ type engineIOClient struct {
 
 	isConnected bool
 
-	transport eioTypeTransport
-	outbox    chan *engineIOPacket
-	// onData     func(*engineIOClient, []byte)
-	sioClients map[string]*SocketIOClient
+	transport    eioTypeTransport
+	outbox       chan *engineIOPacket
+	subClients   map[string]interface{}
+	onRecvPacket func(*engineIOClient, *engineIOPacket)
 
-	//when get buffer message
-	// isReadingBuffer bool
-	// buffers         []*eioPacketBuffer
-	// readBuffersIdx int
-	// readListener   chan int
+	isReadingPayload bool
 }
 
 func newEngineIOClient(id string) *engineIOClient {
@@ -45,7 +41,7 @@ func newEngineIOClient(id string) *engineIOClient {
 			id:          uid,
 			isConnected: false,
 			outbox:      make(chan *engineIOPacket),
-			sioClients:  map[string]*SocketIOClient{},
+			subClients:  map[string]interface{}{},
 		}
 		client.transport = __TRANSPORT_POLLING
 		eioClients[uid] = client
@@ -55,6 +51,7 @@ func newEngineIOClient(id string) *engineIOClient {
 	return client
 }
 
+// Handle request connect by client
 func (client *engineIOClient) connect() {
 	data := map[string]interface{}{
 		"sid":          client.id.String(),
@@ -66,6 +63,7 @@ func (client *engineIOClient) connect() {
 	client.send(newEngineIOPacket(__EIO_PACKET_OPEN, jsonData))
 }
 
+// send to client
 func (client *engineIOClient) send(packet *engineIOPacket) {
 	go func() {
 		select {
@@ -81,58 +79,35 @@ func (client *engineIOClient) send(packet *engineIOPacket) {
 	}()
 }
 
-func (eClient *engineIOClient) onData(b []byte) {
-	packet := decodeAsSocketIOPacket(b)
-
-	if packet.packetType == __SIO_PACKET_CONNECT {
-		// create new and add to map
-		sClient := newSocketIOClient(packet.namespace)
-		eClient.sioClients[packet.namespace] = sClient
-		sClient.eioClient = eClient
-		sClient.connect(packet)
-
-	} else if packet.packetType == __SIO_PACKET_EVENT || packet.packetType == __SIO_PACKET_BINARY_EVENT {
-		sioClient := eClient.sioClients[packet.namespace]
-		if sioClient != nil {
-			sioClient.onMessage(packet)
-		}
-	}
-}
-
-// isBase64 default true
-func (client *engineIOClient) handleRequest(b []byte, isBase64 ...bool) {
+// handleRequest
+func (client *engineIOClient) handleRequest(b []byte) {
 	buf := bytes.NewBuffer(b)
 	for {
 		if buf.Len() == 0 {
 			break
 		}
 
-		packet, _ := decodeAsEngineIOPacket(buf)
+		var packet *engineIOPacket = nil
 
-		if packet.packetType == __EIO_PACKET_MESSAGE {
-			client.onData(packet.data)
+		if client.transport == __TRANSPORT_WEBSOCKET && client.isReadingPayload {
+			packet, _ = decodeAsEngineIOPacket(buf, true)
+		} else {
+			packet, _ = decodeAsEngineIOPacket(buf)
 		}
-		// TODO : if packet.packetType == __EIO_PAYLOAD
 
-		// client.handleRequest(bytes, false)
+		if packet.packetType == __EIO_PACKET_MESSAGE || packet.packetType == __EIO_PAYLOAD {
+			client.onRecvPacket(client, packet)
+		}
 	}
 	return
-	// if client.isReadingBuffer {
-	// 	if numBuf := len(client.buffers); client.readBuffersIdx < numBuf {
-	// 		client.buffers[client.readBuffersIdx].b = b
-	// 		client.readBuffersIdx++
-	// 		if client.readBuffersIdx == numBuf {
-	// 			client.buffers = nil
-	// 			client.isReadingBuffer = false
-	// 			client.readListener <- 1
-	// 		}
-	// 	}
-	// 	return
-	// }
 }
 
+// Handle transport polling
 func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Request) {
-	if req.Method == "GET" {
+	switch req.Method {
+
+	// listener: packet sender
+	case "GET":
 		select {
 		case packet := <-client.outbox:
 			w.Write(packet.encode())
@@ -140,7 +115,10 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 			packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
 			w.Write(packet.encode())
 		}
-	} else if req.Method == "POST" {
+		break
+
+	// listener: packet reciever
+	case "POST":
 		b, err := io.ReadAll(req.Body)
 		if err != nil {
 			return
@@ -148,9 +126,11 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 		client.handleRequest(b)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("ok"))
+		break
 	}
 }
 
+// Handle transport websocket
 func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	var message []byte
 
@@ -179,6 +159,7 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 		}
 	}
 
+	// listener: packet sender
 	go func() {
 		for {
 			select {
@@ -192,6 +173,7 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 		}
 	}()
 
+	// listener: packet reciever
 	for {
 		message = []byte{}
 		if err := websocket.Message.Receive(conn, &message); err != nil {

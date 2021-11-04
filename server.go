@@ -43,7 +43,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	sid := req.URL.Query().Get("sid")
 	client := newEngineIOClient(sid)
 	client.handler = h
-	// client.onData = eioClientOnData
+	client.onRecvPacket = onRecvPacket
 
 	transport := req.URL.Query().Get("transport")
 	if transport == "polling" {
@@ -66,4 +66,41 @@ func (h *Handler) On(event string, f func(*SocketIOClient, []interface{})) {
 		h.events = map[string]func(*SocketIOClient, []interface{}){}
 	}
 	h.events[event] = f
+}
+
+func onRecvPacket(eClient *engineIOClient, eioPacket *engineIOPacket) {
+
+	if eioPacket.packetType == __EIO_PAYLOAD {
+		// 	if numBuf := len(client.buffers); client.readBuffersIdx < numBuf {
+		// 		client.buffers[client.readBuffersIdx].b = b
+		// 		client.readBuffersIdx++
+		// 		if client.readBuffersIdx == numBuf {
+		// 			client.buffers = nil
+		// 			client.isReadingPayload = false
+		// 			client.readListener <- 1
+		// 		}
+		// 	}
+		return
+	}
+
+	packet := decodeAsSocketIOPacket(eioPacket.data)
+
+	if packet.packetType == __SIO_PACKET_CONNECT {
+		// create new and add to map
+		sClient := newSocketIOClient(packet.namespace)
+		eClient.subClients[packet.namespace] = sClient
+		sClient.eioClient = eClient
+		sClient.connect(packet)
+
+	} else if packet.packetType == __SIO_PACKET_EVENT || packet.packetType == __SIO_PACKET_BINARY_EVENT {
+		subClient, isFound := eClient.subClients[packet.namespace]
+
+		if isFound && subClient != nil {
+			sioClient, isOk := subClient.(*SocketIOClient)
+
+			if isOk {
+				sioClient.onMessage(packet)
+			}
+		}
+	}
 }
