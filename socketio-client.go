@@ -9,7 +9,6 @@ type SocketIOClient struct {
 	handler   *Handler
 	eioClient *engineIOClient
 	namespace string
-	// onConnect func()
 }
 
 func newSocketIOClient(namespace string) *SocketIOClient {
@@ -20,6 +19,7 @@ func newSocketIOClient(namespace string) *SocketIOClient {
 	return c
 }
 
+// Handle client's connect request
 func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	// do authenticating ...
 	var data interface{}
@@ -27,8 +27,8 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	if client.eioClient.handler.authenticator != nil {
-		if !isOk || !client.eioClient.handler.authenticator(data) {
+	if client.eioClient.attr.(socketIOHandler).authenticator != nil {
+		if !isOk || !client.eioClient.attr.(socketIOHandler).authenticator(data) {
 			errConnData := map[string]interface{}{
 				"message": "Not authorized",
 				"data": map[string]interface{}{
@@ -41,6 +41,7 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 			return
 		}
 	}
+
 	// if success
 	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": client.id.String()})
 	client.send(packet)
@@ -65,7 +66,7 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			handlerFunc = client.eioClient.handler.events[event]
+			handlerFunc = client.eioClient.attr.(socketIOHandler).events[event]
 			args = args[1:]
 		}
 	}

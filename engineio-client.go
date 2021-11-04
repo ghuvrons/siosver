@@ -12,17 +12,16 @@ import (
 )
 
 type engineIOClient struct {
-	id      uuid.UUID
-	handler *Handler
-
-	isConnected bool
-
-	transport    eioTypeTransport
-	outbox       chan *engineIOPacket
-	subClients   map[string]interface{}
-	onRecvPacket func(*engineIOClient, *engineIOPacket)
-
+	id               uuid.UUID
+	isConnected      bool
+	transport        eioTypeTransport
+	outbox           chan *engineIOPacket
 	isReadingPayload bool
+	onConnected      func(*engineIOClient)
+	onRecvPacket     func(*engineIOClient, *engineIOPacket)
+
+	// can use for optional attibute
+	attr interface{}
 }
 
 func newEngineIOClient(id string) *engineIOClient {
@@ -41,11 +40,14 @@ func newEngineIOClient(id string) *engineIOClient {
 			id:          uid,
 			isConnected: false,
 			outbox:      make(chan *engineIOPacket),
-			subClients:  map[string]interface{}{},
 		}
 		client.transport = __TRANSPORT_POLLING
 		eioClients[uid] = client
 		client.connect()
+
+		if client.onConnected != nil {
+			client.onConnected(client)
+		}
 	}
 
 	return client
@@ -80,14 +82,14 @@ func (client *engineIOClient) send(packet *engineIOPacket) {
 }
 
 // handleRequest
-func (client *engineIOClient) handleRequest(b []byte) {
-	buf := bytes.NewBuffer(b)
+func (client *engineIOClient) handleRequest(buf *bytes.Buffer) {
+	// TODO : return error
 	for {
+		var packet *engineIOPacket = nil
+
 		if buf.Len() == 0 {
 			break
 		}
-
-		var packet *engineIOPacket = nil
 
 		if client.transport == __TRANSPORT_WEBSOCKET && client.isReadingPayload {
 			packet, _ = decodeAsEngineIOPacket(buf, true)
@@ -104,6 +106,7 @@ func (client *engineIOClient) handleRequest(b []byte) {
 
 // Handle transport polling
 func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Request) {
+	// TODO : return error
 	switch req.Method {
 
 	// listener: packet sender
@@ -123,7 +126,8 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 		if err != nil {
 			return
 		}
-		client.handleRequest(b)
+		buf := bytes.NewBuffer(b)
+		client.handleRequest(buf)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("ok"))
 		break
@@ -132,6 +136,7 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 
 // Handle transport websocket
 func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
+	// TODO : return error
 	var message []byte
 
 	// handshacking for change transport
@@ -179,6 +184,8 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 		if err := websocket.Message.Receive(conn, &message); err != nil {
 			break
 		}
-		client.handleRequest(message)
+
+		buf := bytes.NewBuffer(message)
+		client.handleRequest(buf)
 	}
 }

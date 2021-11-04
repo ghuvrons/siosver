@@ -1,6 +1,7 @@
 package siosver
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -134,7 +135,8 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := decodeAsSocketIOPacket(tt.args.b); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
+			buf := bytes.NewBuffer(tt.args.b)
+			if got := decodeAsSocketIOPacket(buf); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
 				// skip binary packet testing
 				if tt.want.packetType == __SIO_PACKET_BINARY_ACK || tt.want.packetType == __SIO_PACKET_BINARY_EVENT {
 					return

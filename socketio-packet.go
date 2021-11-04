@@ -19,10 +19,11 @@ const (
 )
 
 type socketIOPacket struct {
-	packetType sioPacketType
-	namespace  string
-	ackId      int
-	data       interface{}
+	packetType  sioPacketType
+	namespace   string
+	ackId       int
+	data        interface{}
+	numOfBuffer int
 }
 
 func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOPacket {
@@ -67,16 +68,16 @@ func (packet *socketIOPacket) encode() []byte {
 	return buf.Bytes()
 }
 
-func decodeAsSocketIOPacket(b []byte) *socketIOPacket {
-	if len(b) == 0 {
+func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
+	// TODO : return error
+
+	tmpTypePacket, err := buf.ReadByte()
+	if err != nil {
 		return nil
 	}
 
-	buf := bytes.NewBuffer(b)
-	tmpTypePacket, _ := buf.ReadByte()
 	typePacket := sioPacketType(tmpTypePacket)
 	packet := newSocketIOPacket(typePacket)
-	packetBufIdx := 0
 
 	for {
 		if buf.Len() == 0 {
@@ -101,7 +102,7 @@ func decodeAsSocketIOPacket(b []byte) *socketIOPacket {
 			isGetNumOfBinary := false
 
 			// get string bytes
-			if packetBufIdx == 0 && (typePacket == __SIO_PACKET_BINARY_EVENT || typePacket == __SIO_PACKET_BINARY_ACK) {
+			if packet.numOfBuffer == 0 && (typePacket == __SIO_PACKET_BINARY_EVENT || typePacket == __SIO_PACKET_BINARY_ACK) {
 				isGetNumOfBinary = true
 				tmpNumber, _ = buf.ReadString('-')
 
@@ -126,7 +127,7 @@ func decodeAsSocketIOPacket(b []byte) *socketIOPacket {
 			// save
 			if isGetNumOfBinary {
 				buf.ReadByte()
-				packetBufIdx = number
+				packet.numOfBuffer = number
 
 			} else {
 				packet.ackId = number

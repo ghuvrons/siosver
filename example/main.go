@@ -25,6 +25,9 @@ func socketIOInit() http.Handler {
 	// 	fmt.Println("auth data", data)
 	// 	return true
 	// })
+	sioHandler.On("message", func(si *siosver.SocketIOClient, i []interface{}) {
+
+	})
 
 	h := socketIOHandler{}
 	h.sioHandler = sioHandler
