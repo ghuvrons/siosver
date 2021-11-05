@@ -9,6 +9,7 @@ type SocketIOClient struct {
 	handler   *Handler
 	eioClient *engineIOClient
 	namespace string
+	tmpPacket *socketIOPacket
 }
 
 func newSocketIOClient(namespace string) *SocketIOClient {
@@ -27,8 +28,8 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	if client.eioClient.attr.(socketIOHandler).authenticator != nil {
-		if !isOk || !client.eioClient.attr.(socketIOHandler).authenticator(data) {
+	if client.eioClient.attr.(*socketIOHandler).authenticator != nil {
+		if !isOk || !client.eioClient.attr.(*socketIOHandler).authenticator(data) {
 			errConnData := map[string]interface{}{
 				"message": "Not authorized",
 				"data": map[string]interface{}{
@@ -66,7 +67,7 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			handlerFunc = client.eioClient.attr.(socketIOHandler).events[event]
+			handlerFunc = client.eioClient.attr.(*socketIOHandler).events[event]
 			args = args[1:]
 		}
 	}

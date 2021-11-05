@@ -43,11 +43,6 @@ func newEngineIOClient(id string) *engineIOClient {
 		}
 		client.transport = __TRANSPORT_POLLING
 		eioClients[uid] = client
-		client.connect()
-
-		if client.onConnected != nil {
-			client.onConnected(client)
-		}
 	}
 
 	return client
@@ -61,6 +56,7 @@ func (client *engineIOClient) connect() {
 		"pingInterval": 25000,
 		"pingTimeout":  5000,
 	}
+	client.isConnected = true
 	jsonData, _ := json.Marshal(data)
 	client.send(newEngineIOPacket(__EIO_PACKET_OPEN, jsonData))
 }
@@ -70,9 +66,6 @@ func (client *engineIOClient) send(packet *engineIOPacket) {
 	go func() {
 		select {
 		case client.outbox <- packet:
-			if !client.isConnected {
-				client.isConnected = true
-			}
 			return
 
 		case <-time.After(time.Duration(serverOptions.pingInterval) * time.Millisecond):
@@ -98,7 +91,9 @@ func (client *engineIOClient) handleRequest(buf *bytes.Buffer) {
 		}
 
 		if packet.packetType == __EIO_PACKET_MESSAGE || packet.packetType == __EIO_PAYLOAD {
-			client.onRecvPacket(client, packet)
+			if client.onRecvPacket != nil {
+				client.onRecvPacket(client, packet)
+			}
 		}
 	}
 	return
