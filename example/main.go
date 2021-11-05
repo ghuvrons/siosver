@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/ghuvrons/siosver"
@@ -26,8 +27,8 @@ func socketIOInit() http.Handler {
 	// 	fmt.Println("auth data", data)
 	// 	return true
 	// })
-	sioHandler.On("message", func(si *siosver.SocketIOClient, i []interface{}) {
-
+	sioHandler.On("message", func(si *siosver.SocketIOClient, data []interface{}) {
+		fmt.Println(data)
 	})
 
 	h := socketIOHandler{}

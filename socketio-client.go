@@ -55,23 +55,31 @@ func (client *SocketIOClient) send(packet *socketIOPacket) {
 }
 
 func (client *SocketIOClient) Emit(arg ...interface{}) {
-	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg)
+	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
 	client.send(packet)
 }
 
 func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
-	var handlerFunc func(*SocketIOClient, []interface{})
-	args := packet.data.([]interface{})
+	sioHandler, isOk := client.eioClient.attr.(*socketIOHandler)
+	if !isOk {
+		return
+	}
 
-	if len(args) > 0 {
+	eventFunc := sioHandler.events[""]
+	args, isOk := packet.data.([]interface{})
+
+	if isOk && len(args) > 0 {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			handlerFunc = client.eioClient.attr.(*socketIOHandler).events[event]
-			args = args[1:]
+			tmpEventFunc, isFound := sioHandler.events[event]
+			if isFound {
+				eventFunc = tmpEventFunc
+				args = args[1:]
+			}
 		}
 	}
-	if handlerFunc != nil {
-		handlerFunc(client, args)
+	if eventFunc != nil {
+		eventFunc(client, args)
 	}
 }

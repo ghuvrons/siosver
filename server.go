@@ -76,6 +76,9 @@ func (h *Handler) Authenticator(f func(interface{}) bool) {
 }
 
 func (h *Handler) On(event string, f SocketIOEvent) {
+	if event == "message" {
+		event = ""
+	}
 	if h.events == nil {
 		h.events = map[string]SocketIOEvent{}
 	}
