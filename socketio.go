@@ -14,6 +14,13 @@ type socketIOHandler struct {
 	bufferingSioClient *SocketIOClient
 }
 
+var typeOfBuffer = reflect.ValueOf(bytes.Buffer{}).Type()
+
+var socketIOBufferIndex = map[string]interface{}{
+	"_placeholder": true,
+	"num":          0,
+}
+
 func onEngineIOClientConnected(eioClient *engineIOClient) {
 	eioClient.onRecvPacket = onEngineIOClientRecvPacket
 
@@ -148,4 +155,73 @@ func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, err err
 		}
 	}
 	return false, nil
+}
+
+// search buffer and replace with {"_placeholder":true,"num":n}
+func sioPacketGetBuffer(buffers *([]*bytes.Buffer), v interface{}) bool {
+	rv := reflect.ValueOf(v)
+
+	if rk := rv.Kind(); rk == reflect.Ptr {
+		rv = rv.Elem()
+	}
+
+	if !rv.IsValid() || ((rv.Kind() != reflect.Map && rv.Kind() != reflect.Slice) && !rv.CanSet()) {
+		return false
+	}
+
+	switch rk := rv.Kind(); rk {
+	case reflect.Ptr:
+		return sioPacketGetBuffer(buffers, rv.Interface())
+
+	case reflect.Struct:
+		if rv.Type() == typeOfBuffer {
+			return true
+		}
+		for i := 0; i < rv.NumField(); i++ {
+			rvField := rv.Field(i)
+			if rvField.CanSet() && rvField.CanAddr() {
+				sioPacketGetBuffer(buffers, rvField.Addr().Interface())
+			}
+		}
+
+	case reflect.Map:
+		keys := rv.MapKeys()
+
+		for _, key := range keys {
+			rvv := rv.MapIndex(key)
+			if isFound := sioPacketGetBuffer(buffers, rvv.Interface()); isFound {
+				bufPtr, isOk := rvv.Interface().(*bytes.Buffer)
+				if isOk {
+					*buffers = append(*buffers, bufPtr)
+					rv.SetMapIndex(key, reflect.ValueOf(socketIOBufferIndex))
+				}
+			}
+		}
+
+	case reflect.Array, reflect.Slice:
+		for j := 0; j < rv.Len(); j++ {
+			rvv := rv.Index(j)
+			if rkv := rvv.Kind(); rkv == reflect.Interface {
+				rvv = rvv.Elem()
+			}
+			if isFound := sioPacketGetBuffer(buffers, rvv.Interface()); isFound {
+				bufPtr, isOk := rvv.Interface().(*bytes.Buffer)
+				if isOk {
+					*buffers = append(*buffers, bufPtr)
+					rv.Index(j).Set(reflect.ValueOf(socketIOBufferIndex))
+				}
+			}
+		}
+
+	case reflect.Interface:
+		rvv := rv.Elem()
+		if isFound := sioPacketGetBuffer(buffers, rvv.Interface()); isFound {
+			bufPtr, isOk := rvv.Interface().(*bytes.Buffer)
+			if isOk && rv.CanSet() && rv.CanAddr() {
+				*buffers = append(*buffers, bufPtr)
+				rv.Set(reflect.ValueOf(socketIOBufferIndex))
+			}
+		}
+	}
+	return false
 }

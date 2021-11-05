@@ -24,17 +24,32 @@ const __EIO_DELIMITER byte = 0x1E
 type engineIOPacket struct {
 	packetType eioPacketType
 	data       []byte
+	callback   chan bool
 }
 
-func newEngineIOPacket(typePacket eioPacketType, data []byte) *engineIOPacket {
-	var packet = &engineIOPacket{typePacket, data}
+func newEngineIOPacket(packetType eioPacketType, data []byte) *engineIOPacket {
+	var packet = &engineIOPacket{
+		packetType: packetType,
+		data:       data,
+	}
 	return packet
 }
 
-func (packet *engineIOPacket) encode() []byte {
+func (packet *engineIOPacket) encode(isBase64 ...bool) []byte {
 	buf := bytes.Buffer{}
-	buf.WriteByte(byte(packet.packetType))
-	buf.Write(packet.data)
+	if packet.packetType != __EIO_PAYLOAD {
+		buf.WriteByte(byte(packet.packetType))
+		buf.Write(packet.data)
+
+	} else {
+		if len(isBase64) > 0 && isBase64[0] {
+			buf.WriteByte(byte(packet.packetType))
+			buf.WriteString(base64.StdEncoding.EncodeToString(packet.data))
+
+		} else {
+			buf.Write(packet.data)
+		}
+	}
 	return buf.Bytes()
 }
 

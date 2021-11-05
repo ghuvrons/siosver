@@ -1,6 +1,8 @@
 package siosver
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -50,8 +52,22 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 
 func (client *SocketIOClient) send(packet *socketIOPacket) {
 	packet.namespace = client.namespace
-	eioPacket := newEngineIOPacket(__EIO_PACKET_MESSAGE, packet.encode())
-	client.eioClient.send(eioPacket)
+	encodedPacket, buffers := packet.encode()
+	eioPacket := newEngineIOPacket(__EIO_PACKET_MESSAGE, encodedPacket)
+	fmt.Println("send message", packet.data)
+	if len(buffers) == 0 {
+		client.eioClient.send(eioPacket)
+
+	} else {
+		// binary message
+		client.eioClient.send(eioPacket, true)
+
+		for _, buf := range buffers {
+			fmt.Println("send binary")
+			eioPacket = newEngineIOPacket(__EIO_PAYLOAD, buf.Bytes())
+			client.eioClient.send(eioPacket, true)
+		}
+	}
 }
 
 func (client *SocketIOClient) Emit(arg ...interface{}) {

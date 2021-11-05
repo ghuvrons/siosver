@@ -3,6 +3,7 @@ package siosver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strconv"
 )
 
@@ -52,20 +53,46 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 	return packet
 }
 
-func (packet *socketIOPacket) encode() []byte {
+func (packet *socketIOPacket) encode() (data []byte, buffers [](*bytes.Buffer)) {
 	// TODO : what if packet type is binary
 	// TODO : what if packet type has ack
 
 	buf := bytes.Buffer{}
+	buffers = [](*bytes.Buffer){}
+	isBinaryPacket := false
 
-	buf.WriteByte(byte(packet.packetType))
-	if packet.namespace != "" {
-		buf.Write([]byte("/" + packet.namespace + ","))
+	// check buffers data
+	sioPacketGetBuffer(&buffers, &(packet.data))
+	if len(buffers) > 0 {
+		switch packet.packetType {
+		case __SIO_PACKET_EVENT:
+			packet.packetType = __SIO_PACKET_BINARY_EVENT
+		case __SIO_PACKET_ACK:
+			packet.packetType = __SIO_PACKET_BINARY_ACK
+		}
+		isBinaryPacket = true
 	}
+
+	// packetType
+	buf.WriteByte(byte(packet.packetType))
+
+	// num of buffers data
+	if isBinaryPacket {
+		fmt.Fprintf(&buf, "%d-", len(buffers))
+	}
+
+	// namespace
+	if packet.namespace != "" {
+		fmt.Fprintf(&buf, "/%s,", packet.namespace)
+	}
+
+	// ACK
+
 	rawdata, _ := json.Marshal(packet.data)
 	buf.Write(rawdata)
 
-	return buf.Bytes()
+	data = buf.Bytes()
+	return
 }
 
 func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
@@ -154,16 +181,9 @@ func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
 
 // Check is packet type is for messaging
 func isSioPacketMessager(typePacket sioPacketType) bool {
-	messagerPacket := []sioPacketType{
-		__SIO_PACKET_EVENT,
-		__SIO_PACKET_BINARY_EVENT,
-		__SIO_PACKET_ACK,
-		__SIO_PACKET_BINARY_ACK,
-	}
-	for _, v := range messagerPacket {
-		if v == typePacket {
-			return true
-		}
+	switch typePacket {
+	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT, __SIO_PACKET_ACK, __SIO_PACKET_BINARY_ACK:
+		return true
 	}
 	return false
 }

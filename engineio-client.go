@@ -62,7 +62,14 @@ func (client *engineIOClient) connect() {
 }
 
 // send to client
-func (client *engineIOClient) send(packet *engineIOPacket) {
+func (client *engineIOClient) send(packet *engineIOPacket, isWaitSent ...bool) {
+	sendingFlag := false
+
+	if len(isWaitSent) > 0 && isWaitSent[0] {
+		packet.callback = make(chan bool)
+		sendingFlag = true
+	}
+
 	go func() {
 		select {
 		case client.outbox <- packet:
@@ -72,6 +79,12 @@ func (client *engineIOClient) send(packet *engineIOPacket) {
 			return
 		}
 	}()
+
+	if sendingFlag {
+		if isSent := <-packet.callback; isSent {
+			return
+		}
+	}
 }
 
 // handleRequest
@@ -108,7 +121,11 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 	case "GET":
 		select {
 		case packet := <-client.outbox:
-			w.Write(packet.encode())
+			w.Write(packet.encode(true))
+			if packet.callback != nil {
+				packet.callback <- true
+			}
+
 		case <-time.After(time.Duration(serverOptions.pingInterval) * time.Millisecond):
 			packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
 			w.Write(packet.encode())
@@ -165,6 +182,9 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 			select {
 			case packet := <-client.outbox:
 				conn.Write(packet.encode())
+				if packet.callback != nil {
+					packet.callback <- true
+				}
 
 			case <-time.After(time.Duration(serverOptions.pingInterval) * time.Millisecond):
 				packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
