@@ -44,12 +44,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	transport := req.URL.Query().Get("transport")
 
 	client := newEngineIOClient(sid)
-	client.attr = &socketIOHandler{
-		events:        h.events,
-		authenticator: h.authenticator,
-	}
-	client.onConnected = onEngineIOClientConnected
 	if !client.isConnected {
+		client.attr = &socketIOHandler{
+			events:        h.events,
+			authenticator: h.authenticator,
+		}
+		client.onConnected = onEngineIOClientConnected
+
 		if transport == "websocket" {
 			client.transport = __TRANSPORT_WEBSOCKET
 		}
