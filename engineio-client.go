@@ -53,8 +53,8 @@ func (client *engineIOClient) connect() {
 	data := map[string]interface{}{
 		"sid":          client.id.String(),
 		"upgrades":     []string{"websocket"},
-		"pingInterval": 25000,
-		"pingTimeout":  5000,
+		"pingInterval": serverOptions.pingInterval,
+		"pingTimeout":  serverOptions.pingTimeout,
 	}
 	client.isConnected = true
 	jsonData, _ := json.Marshal(data)
@@ -181,7 +181,7 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 		for {
 			select {
 			case packet := <-client.outbox:
-				conn.Write(packet.encode())
+				conn.Write(packet.encode(true))
 				if packet.callback != nil {
 					packet.callback <- true
 				}
