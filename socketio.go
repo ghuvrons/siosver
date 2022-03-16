@@ -88,7 +88,7 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 }
 
 // search {"_placeholder":true,"num":n} and replace with buffer
-func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, err error) {
+func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, isReplaced bool, err error) {
 	rv := reflect.ValueOf(v)
 
 	if rk := rv.Kind(); rk == reflect.Ptr || rk == reflect.Interface {
@@ -96,14 +96,15 @@ func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, err err
 	}
 
 	if !rv.IsValid() || ((rv.Kind() != reflect.Map && rv.Kind() != reflect.Slice) && !rv.CanSet()) {
-		return false, nil
+		return false, false, nil
 	}
 
 	switch rk := rv.Kind(); rk {
 	case reflect.Ptr:
-		rv.Set(reflect.New(rv.Type().Elem()))
-		if isFound, err = sioPacketSetBuffer(rv.Interface(), buf); isFound || err != nil {
-			return
+		if !rv.IsNil() {
+			if isFound, isReplaced, err = sioPacketSetBuffer(rv.Interface(), buf); isFound || err != nil {
+				return
+			}
 		}
 
 	case reflect.Map:
@@ -128,18 +129,19 @@ func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, err err
 			}
 
 			if flag == 0 { // buffer req found
-				return true, nil
+				return true, false, nil
 			}
 		}
 
 		for _, key := range keys {
 			rvv := rv.MapIndex(key)
-			isFound, err = sioPacketSetBuffer(rvv.Interface(), buf)
-			if isFound {
+			isFound, isReplaced, err = sioPacketSetBuffer(rvv.Interface(), buf)
+			if isFound && !isReplaced {
 				rv.SetMapIndex(key, reflect.ValueOf(buf))
+				isReplaced = true
 			}
 			if isFound || err != nil {
-				return
+				break
 			}
 		}
 
@@ -149,12 +151,19 @@ func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, err err
 			if rkv := rvv.Kind(); rkv == reflect.Interface {
 				rvv = rvv.Elem()
 			}
-			if isFound, err = sioPacketSetBuffer(rvv.Interface(), buf); isFound || err != nil {
-				return
+			isFound, isReplaced, err = sioPacketSetBuffer(rvv.Interface(), buf);
+			if isFound && !isReplaced {
+				if rvv = rv.Index(j); !isReplaced && rvv.CanSet() {
+					rvv.Set(reflect.ValueOf(buf))
+					isReplaced = true
+				}
+			}
+			if isFound || err != nil {
+				break
 			}
 		}
 	}
-	return false, nil
+	return
 }
 
 // search buffer and replace with {"_placeholder":true,"num":n}

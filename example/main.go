@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"net/http"
+	"fmt"
 
 	"github.com/ghuvrons/siosver"
 )
@@ -32,10 +33,12 @@ func socketIOInit() http.Handler {
 	// 	return true
 	// })
 	sioHandler.On("message", func(client *siosver.SocketIOClient, data []interface{}) {
+		fmt.Println("new message", data)
+
 		cbdata := map[string]interface{}{
-			"hmmm": bytes.NewBuffer([]byte{1, 2, 3}),
+			"data": bytes.NewBuffer([]byte{1, 2, 3}),
 		}
-		client.Emit("hoy", cbdata)
+		client.Emit("test_bin", cbdata)
 	})
 
 	h := socketIOHandler{}
