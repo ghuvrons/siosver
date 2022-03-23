@@ -1,0 +1,5 @@
+General:
+  ✔ Change SocketIOEvent to Variadic function for second argument as list of arguments (...args). @done (3/23/2022, 10:10:56 AM)
+  ✔ Add event "connection" that will execution on new client success connected. @done (3/23/2022, 10:35:35 AM)
+  ☐ Close client when ping was timeout.
+  ☐ Engine.IO in directory

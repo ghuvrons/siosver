@@ -27,9 +27,11 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	// do authenticating ...
 	var data interface{}
 	var isOk bool
+
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
+
 	if client.eioClient.attr.(*socketIOHandler).authenticator != nil {
 		if !isOk || !client.eioClient.attr.(*socketIOHandler).authenticator(data) {
 			errConnData := map[string]interface{}{
@@ -48,13 +50,23 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	// if success
 	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": client.id.String()})
 	client.send(packet)
+
+	sioHandler, isOk := client.eioClient.attr.(*socketIOHandler)
+	if !isOk {
+		return
+	}
+
+	eventFunc, isEventFound := sioHandler.events["connection"]
+	if isEventFound && eventFunc != nil {
+		eventFunc(client)
+	}
 }
 
 func (client *SocketIOClient) send(packet *socketIOPacket) {
 	packet.namespace = client.namespace
 	encodedPacket, buffers := packet.encode()
 	eioPacket := newEngineIOPacket(__EIO_PACKET_MESSAGE, encodedPacket)
-	fmt.Println("send message", packet.data)
+
 	if len(buffers) == 0 {
 		client.eioClient.send(eioPacket)
 
@@ -81,7 +93,7 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 		return
 	}
 
-	eventFunc := sioHandler.events[""]
+	eventFunc, isEventFound := sioHandler.events[""]
 	args, isOk := packet.data.([]interface{})
 
 	if isOk && len(args) > 0 {
@@ -95,7 +107,8 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 			}
 		}
 	}
-	if eventFunc != nil {
-		eventFunc(client, args)
+
+	if isEventFound && eventFunc != nil {
+		eventFunc(client, args...)
 	}
 }

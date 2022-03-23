@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-type SocketIOEvent func(*SocketIOClient, []interface{})
+type SocketIOEvent func(client *SocketIOClient, args ...interface{})
 
 type socketIOHandler struct {
 	sioClients         map[string]*SocketIOClient
@@ -151,7 +151,7 @@ func sioPacketSetBuffer(v interface{}, buf *bytes.Buffer) (isFound bool, isRepla
 			if rkv := rvv.Kind(); rkv == reflect.Interface {
 				rvv = rvv.Elem()
 			}
-			isFound, isReplaced, err = sioPacketSetBuffer(rvv.Interface(), buf);
+			isFound, isReplaced, err = sioPacketSetBuffer(rvv.Interface(), buf)
 			if isFound && !isReplaced {
 				if rvv = rv.Index(j); !isReplaced && rvv.CanSet() {
 					rvv.Set(reflect.ValueOf(buf))

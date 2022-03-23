@@ -1,9 +1,8 @@
 package main
 
 import (
-	"bytes"
-	"net/http"
 	"fmt"
+	"net/http"
 
 	"github.com/ghuvrons/siosver"
 )
@@ -27,22 +26,32 @@ func main() {
 }
 
 func socketIOInit() http.Handler {
-	sioHandler := new(siosver.Handler)
+	io := new(siosver.Handler)
 	// sioHandler.Authenticator(func(data interface{}) bool {
 	// 	fmt.Println("auth data", data)
 	// 	return true
 	// })
-	sioHandler.On("message", func(client *siosver.SocketIOClient, data []interface{}) {
+
+	io.On("connection", func(client *siosver.SocketIOClient, _ ...interface{}) {
+		fmt.Println("new client", client)
+
+		// cbdata := map[string]interface{}{
+		// 	"data": bytes.NewBuffer([]byte{1, 2, 3}),
+		// }
+		// client.Emit("test_bin", cbdata)
+	})
+
+	io.On("message", func(client *siosver.SocketIOClient, data ...interface{}) {
 		fmt.Println("new message", data)
 
-		cbdata := map[string]interface{}{
-			"data": bytes.NewBuffer([]byte{1, 2, 3}),
-		}
-		client.Emit("test_bin", cbdata)
+		// cbdata := map[string]interface{}{
+		// 	"data": bytes.NewBuffer([]byte{1, 2, 3}),
+		// }
+		// client.Emit("test_bin", cbdata)
 	})
 
 	h := socketIOHandler{}
-	h.sioHandler = sioHandler
+	h.sioHandler = io
 
 	return h
 }
