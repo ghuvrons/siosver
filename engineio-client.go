@@ -3,6 +3,7 @@ package siosver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -16,6 +17,7 @@ type engineIOClient struct {
 	isConnected      bool
 	transport        eioTypeTransport
 	outbox           chan *engineIOPacket
+	pongIrq          chan bool
 	isReadingPayload bool
 	onConnected      func(*engineIOClient)
 	onRecvPacket     func(*engineIOClient, *engineIOPacket)
@@ -34,8 +36,8 @@ func newEngineIOClient(id string) *engineIOClient {
 	}
 
 	// search client in memory
-	client := eioClients[uid]
-	if client == nil {
+	client, isFound := eioClients[uid]
+	if !isFound || client == nil {
 		client = &engineIOClient{
 			id:          uid,
 			isConnected: false,
@@ -107,6 +109,10 @@ func (client *engineIOClient) handleRequest(buf *bytes.Buffer) {
 			if client.onRecvPacket != nil {
 				client.onRecvPacket(client, packet)
 			}
+		} else if packet.packetType == __EIO_PACKET_PONG {
+			if client.pongIrq != nil {
+				client.pongIrq <- true
+			}
 		}
 	}
 	return
@@ -119,16 +125,41 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 
 	// listener: packet sender
 	case "GET":
+		if !client.isConnected {
+			packet := newEngineIOPacket(__EIO_PACKET_CLOSE, []byte{})
+			w.Write(packet.encode())
+			return
+		}
+
 		select {
 		case packet := <-client.outbox:
-			w.Write(packet.encode(true))
+			if _, err := w.Write(packet.encode(true)); err != nil {
+				client.close()
+				return
+			}
 			if packet.callback != nil {
 				packet.callback <- true
 			}
 
 		case <-time.After(time.Duration(serverOptions.pingInterval) * time.Millisecond):
+			client.pongIrq = make(chan bool, 1)
+
 			packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
-			w.Write(packet.encode())
+			if _, err := w.Write(packet.encode()); err != nil {
+				client.close()
+				return
+			}
+
+			go func() {
+				select {
+				case <-client.pongIrq:
+					close(client.pongIrq)
+					return
+				case <-time.After(time.Duration(serverOptions.pingTimeout) * time.Millisecond):
+					client.close()
+					return
+				}
+			}()
 		}
 		break
 
@@ -151,6 +182,13 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	// TODO : return error
 	var message []byte
 
+	defer func() {
+		if client.isConnected {
+			client.close()
+			conn.Close()
+		}
+	}()
+
 	// handshacking for change transport
 	for {
 		if client.transport == __TRANSPORT_WEBSOCKET {
@@ -165,42 +203,78 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 
 		switch string(message) {
 		case "2probe":
-			conn.Write([]byte("3probe"))
+			if _, err := conn.Write([]byte("3probe")); err != nil {
+				return
+			}
 			client.outbox <- newEngineIOPacket(__EIO_PACKET_NOOP, []byte{})
 
-		case "5":
+		case string(__EIO_PACKET_UPGRADE):
 			client.transport = __TRANSPORT_WEBSOCKET
 
 		default:
-			return
+			client.close()
 		}
 	}
 
 	// listener: packet sender
 	go func() {
-		for {
+		defer func() {
+			if client.isConnected {
+				client.close()
+				conn.Close()
+			}
+		}()
+
+		for client.isConnected {
 			select {
 			case packet := <-client.outbox:
-				conn.Write(packet.encode(true))
+				if _, err := conn.Write(packet.encode(true)); err != nil {
+					return
+				}
 				if packet.callback != nil {
 					packet.callback <- true
 				}
 
 			case <-time.After(time.Duration(serverOptions.pingInterval) * time.Millisecond):
+				if !client.isConnected {
+					return
+				}
+				client.pongIrq = make(chan bool, 1)
+
 				packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
-				conn.Write(packet.encode())
+				if _, err := conn.Write(packet.encode()); err != nil {
+					return
+				}
+
+				select {
+				case <-client.pongIrq:
+					close(client.pongIrq)
+					break
+				case <-time.After(time.Duration(serverOptions.pingTimeout) * time.Millisecond):
+					return
+				}
 			}
 		}
+
 	}()
 
 	// listener: packet reciever
-	for {
+	for client.isConnected {
 		message = []byte{}
 		if err := websocket.Message.Receive(conn, &message); err != nil {
-			break
+			return
 		}
 
 		buf := bytes.NewBuffer(message)
 		client.handleRequest(buf)
 	}
+}
+
+func (client *engineIOClient) close() {
+	if !client.isConnected {
+		return
+	}
+	client.isConnected = false
+	delete(eioClients, client.id)
+	fmt.Println("Closed client")
 }
