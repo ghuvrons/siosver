@@ -1,8 +1,6 @@
 package siosver
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 )
 
@@ -75,7 +73,6 @@ func (client *SocketIOClient) send(packet *socketIOPacket) {
 		client.eioClient.send(eioPacket, true)
 
 		for _, buf := range buffers {
-			fmt.Println("send binary")
 			eioPacket = newEngineIOPacket(__EIO_PAYLOAD, buf.Bytes())
 			client.eioClient.send(eioPacket, true)
 		}

@@ -4,3 +4,5 @@ General:
   ✔ Close client when ping was timeout. @done (3/23/2022, 2:30:09 PM)
   ☐ Engine.IO in directory
   ☐ AckEvent
+
+Bug:

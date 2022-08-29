@@ -23,6 +23,7 @@ var socketIOBufferIndex = map[string]interface{}{
 
 func onEngineIOClientConnected(eioClient *engineIOClient) {
 	eioClient.onRecvPacket = onEngineIOClientRecvPacket
+	eioClient.onClosed = onEngineIOClientClosed
 
 	if sioHandler, isOk := eioClient.attr.(*socketIOHandler); isOk {
 		sioHandler.sioClients = map[string]*SocketIOClient{}
@@ -82,6 +83,18 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 				}
 
 				return
+			}
+		}
+	}
+}
+
+func onEngineIOClientClosed(eioClient *engineIOClient) {
+	if sioHandler, isOk := eioClient.attr.(*socketIOHandler); isOk {
+
+		eventFunc, isEventFound := sioHandler.events["close"]
+		if isEventFound && eventFunc != nil && sioHandler.sioClients != nil {
+			for _, sioClient := range sioHandler.sioClients {
+				eventFunc(sioClient)
 			}
 		}
 	}

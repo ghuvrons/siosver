@@ -10,13 +10,13 @@ import (
 )
 
 type ServerOptions struct {
-	pingTimeout  int
-	pingInterval int
+	PingTimeout  int
+	PingInterval int
 }
 
 var serverOptions = &ServerOptions{
-	pingTimeout:  5000,
-	pingInterval: 25000,
+	PingTimeout:  5000,
+	PingInterval: 25000,
 }
 
 var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
@@ -27,6 +27,15 @@ var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
 type Handler struct {
 	events        map[string]SocketIOEvent
 	authenticator func(interface{}) bool
+}
+
+func (h *Handler) Setup(opt ServerOptions) {
+	if opt.PingInterval != 0 {
+		serverOptions.PingInterval = opt.PingInterval
+	}
+	if opt.PingTimeout != 0 {
+		serverOptions.PingTimeout = opt.PingTimeout
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
