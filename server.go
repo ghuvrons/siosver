@@ -2,7 +2,6 @@ package siosver
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -88,7 +87,6 @@ func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case "websocket":
 		ctxWithClient := context.WithValue(req.Context(), engineio.CtxKeyClient, client)
 		wsHandler.ServeHTTP(w, req.WithContext(ctxWithClient))
-		fmt.Println("websocket closed")
 	}
 }
 
