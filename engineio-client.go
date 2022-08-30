@@ -20,7 +20,6 @@ type engineIOClient struct {
 	pingTimer        *time.Timer
 	isPollingWaiting bool
 	isReadingPayload bool
-	onConnected      func(*engineIOClient)
 	onRecvPacket     func(*engineIOClient, *engineIOPacket)
 	onClosed         func(*engineIOClient)
 

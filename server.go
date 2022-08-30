@@ -24,12 +24,13 @@ var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
 	client.serveWebsocket(conn)
 })
 
-type Handler struct {
+type Server struct {
 	events        map[string]SocketIOEvent
 	authenticator func(interface{}) bool
+	rooms         map[string]*Room // key: roomName
 }
 
-func (h *Handler) Setup(opt ServerOptions) {
+func (svr *Server) Setup(opt ServerOptions) {
 	if opt.PingInterval != 0 {
 		serverOptions.PingInterval = opt.PingInterval
 	}
@@ -38,7 +39,7 @@ func (h *Handler) Setup(opt ServerOptions) {
 	}
 }
 
-func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	version := req.URL.Query().Get("EIO")
 	v, err := strconv.Atoi(version)
 	if err != nil {
@@ -55,21 +56,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	client := newEngineIOClient(sid)
 	if !client.isConnected {
-		client.attr = &socketIOHandler{
-			events:        h.events,
-			authenticator: h.authenticator,
+		cHandler := &clientHandler{
+			server: svr,
 		}
-		client.onConnected = onEngineIOClientConnected
+		client.attr = cHandler
+		client.onRecvPacket = onEngineIOClientRecvPacket
+		client.onClosed = onEngineIOClientClosed
 
 		if transport == "websocket" {
 			client.transport = __TRANSPORT_WEBSOCKET
 		}
 
 		client.connect()
-
-		if client.onConnected != nil {
-			client.onConnected(client)
-		}
+		cHandler.sioClients = map[string]*SocketIOClient{}
 	}
 
 	switch transport {
@@ -83,16 +82,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (h *Handler) Authenticator(f func(interface{}) bool) {
-	h.authenticator = f
+func (svr *Server) Authenticator(f func(interface{}) bool) {
+	svr.authenticator = f
 }
 
-func (h *Handler) On(event string, f SocketIOEvent) {
+func (svr *Server) On(event string, f SocketIOEvent) {
 	if event == "message" {
 		event = ""
 	}
-	if h.events == nil {
-		h.events = map[string]SocketIOEvent{}
+	if svr.events == nil {
+		svr.events = map[string]SocketIOEvent{}
 	}
-	h.events[event] = f
+	svr.events[event] = f
 }

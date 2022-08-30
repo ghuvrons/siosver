@@ -7,10 +7,10 @@ import (
 
 type SocketIOEvent func(client *SocketIOClient, args ...interface{})
 
-type socketIOHandler struct {
-	sioClients         map[string]*SocketIOClient
+type clientHandler struct {
+	server             *Server
+	sioClients         map[string]*SocketIOClient // key: namespace
 	events             map[string]SocketIOEvent
-	authenticator      func(interface{}) bool
 	bufferingSioClient *SocketIOClient
 }
 
@@ -21,27 +21,18 @@ var socketIOBufferIndex = map[string]interface{}{
 	"num":          0,
 }
 
-func onEngineIOClientConnected(eioClient *engineIOClient) {
-	eioClient.onRecvPacket = onEngineIOClientRecvPacket
-	eioClient.onClosed = onEngineIOClientClosed
-
-	if sioHandler, isOk := eioClient.attr.(*socketIOHandler); isOk {
-		sioHandler.sioClients = map[string]*SocketIOClient{}
-	}
-}
-
 func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPacket) {
-	sioHandler, isOk := eioClient.attr.(*socketIOHandler)
+	cHandler, isOk := eioClient.attr.(*clientHandler)
 	if !isOk {
 		return
 	}
 
 	if eioPacket.packetType == __EIO_PAYLOAD {
-		if sioHandler.bufferingSioClient == nil {
+		if cHandler.bufferingSioClient == nil {
 			return
 		}
 
-		if packet := sioHandler.bufferingSioClient.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
+		if packet := cHandler.bufferingSioClient.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
 			buf := bytes.NewBuffer(eioPacket.data)
 			sioPacketSetBuffer(packet.data, buf)
 			packet.numOfBuffer--
@@ -49,9 +40,9 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 			// buffering complete
 			if packet.numOfBuffer == 0 {
 				eioClient.isReadingPayload = false
-				sioHandler.bufferingSioClient.onMessage(packet)
-				sioHandler.bufferingSioClient.tmpPacket = nil
-				sioHandler.bufferingSioClient = nil
+				cHandler.bufferingSioClient.onMessage(packet)
+				cHandler.bufferingSioClient.tmpPacket = nil
+				cHandler.bufferingSioClient = nil
 			}
 		}
 		return
@@ -64,19 +55,19 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 	case __SIO_PACKET_CONNECT:
 		sioClient := newSocketIOClient(packet.namespace)
 		sioClient.eioClient = eioClient
-		sioHandler.sioClients[packet.namespace] = sioClient
+		cHandler.sioClients[packet.namespace] = sioClient
 		sioClient.connect(packet)
 		return
 
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT:
 		if eioClient.attr != nil {
-			sioClient, isFound := sioHandler.sioClients[packet.namespace]
+			sioClient, isFound := cHandler.sioClients[packet.namespace]
 
 			if isFound && sioClient != nil {
 				if packet.packetType == __SIO_PACKET_BINARY_EVENT {
 					eioClient.isReadingPayload = true
 					sioClient.tmpPacket = packet
-					sioHandler.bufferingSioClient = sioClient
+					cHandler.bufferingSioClient = sioClient
 
 				} else {
 					sioClient.onMessage(packet)
@@ -89,11 +80,10 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 }
 
 func onEngineIOClientClosed(eioClient *engineIOClient) {
-	if sioHandler, isOk := eioClient.attr.(*socketIOHandler); isOk {
-
-		eventFunc, isEventFound := sioHandler.events["close"]
-		if isEventFound && eventFunc != nil && sioHandler.sioClients != nil {
-			for _, sioClient := range sioHandler.sioClients {
+	if cHandler, isOk := eioClient.attr.(*clientHandler); isOk {
+		eventFunc, isEventFound := cHandler.events["close"]
+		if isEventFound && eventFunc != nil && cHandler.sioClients != nil {
+			for _, sioClient := range cHandler.sioClients {
 				eventFunc(sioClient)
 			}
 		}

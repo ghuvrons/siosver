@@ -7,8 +7,8 @@ import (
 	"github.com/ghuvrons/siosver"
 )
 
-type socketIOHandler struct {
-	sioHandler *siosver.Handler
+type socketIOServer struct {
+	sioServer *siosver.Server
 }
 
 type testruct struct {
@@ -26,7 +26,7 @@ func main() {
 }
 
 func socketIOInit() http.Handler {
-	io := new(siosver.Handler)
+	io := new(siosver.Server)
 	// sioHandler.Authenticator(func(data interface{}) bool {
 	// 	fmt.Println("auth data", data)
 	// 	return true
@@ -50,13 +50,13 @@ func socketIOInit() http.Handler {
 		// client.Emit("test_bin", cbdata)
 	})
 
-	h := socketIOHandler{}
-	h.sioHandler = io
+	h := socketIOServer{}
+	h.sioServer = io
 
 	return h
 }
 
-func (h socketIOHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (svr socketIOServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	h.sioHandler.ServeHTTP(w, req)
+	svr.sioServer.ServeHTTP(w, req)
 }

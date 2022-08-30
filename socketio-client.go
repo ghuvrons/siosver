@@ -6,11 +6,13 @@ import (
 
 type SocketIOClient struct {
 	id        uuid.UUID
-	handler   *Handler
+	server    *Server
 	eioClient *engineIOClient
 	namespace string
 	tmpPacket *socketIOPacket
 }
+
+type SocketIOClients []*SocketIOClient
 
 func newSocketIOClient(namespace string) *SocketIOClient {
 	var c = &SocketIOClient{
@@ -24,14 +26,13 @@ func newSocketIOClient(namespace string) *SocketIOClient {
 func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	// do authenticating ...
 	var data interface{}
-	var isOk bool
 
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-
-	if client.eioClient.attr.(*socketIOHandler).authenticator != nil {
-		if !isOk || !client.eioClient.attr.(*socketIOHandler).authenticator(data) {
+	cHandler, isOk := client.eioClient.attr.(*clientHandler)
+	if isOk && cHandler.server.authenticator != nil {
+		if !cHandler.server.authenticator(data) {
 			errConnData := map[string]interface{}{
 				"message": "Not authorized",
 				"data": map[string]interface{}{
@@ -49,12 +50,7 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": client.id.String()})
 	client.send(packet)
 
-	sioHandler, isOk := client.eioClient.attr.(*socketIOHandler)
-	if !isOk {
-		return
-	}
-
-	eventFunc, isEventFound := sioHandler.events["connection"]
+	eventFunc, isEventFound := cHandler.server.events["connection"]
 	if isEventFound && eventFunc != nil {
 		eventFunc(client)
 	}
@@ -85,19 +81,19 @@ func (client *SocketIOClient) Emit(arg ...interface{}) {
 }
 
 func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
-	sioHandler, isOk := client.eioClient.attr.(*socketIOHandler)
+	cHandler, isOk := client.eioClient.attr.(*clientHandler)
 	if !isOk {
 		return
 	}
 
-	eventFunc, isEventFound := sioHandler.events[""]
+	eventFunc, isEventFound := cHandler.events[""]
 	args, isOk := packet.data.([]interface{})
 
 	if isOk && len(args) > 0 {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			tmpEventFunc, isFound := sioHandler.events[event]
+			tmpEventFunc, isFound := cHandler.events[event]
 			if isFound {
 				eventFunc = tmpEventFunc
 				args = args[1:]
