@@ -1,10 +1,8 @@
 package siosver
 
-import "github.com/google/uuid"
-
 type Room struct {
 	Name    string
-	sockets map[uuid.UUID]*Socket
+	sockets Sockets
 }
 
 func (room *Room) join(socket *Socket) {
@@ -17,7 +15,8 @@ func (room *Room) leave(socket *Socket) {
 }
 
 func (room *Room) Emit(arg ...interface{}) {
-	for _, c := range room.sockets {
-		c.Emit(arg...)
+	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
+	for _, socket := range room.sockets {
+		socket.send(packet)
 	}
 }

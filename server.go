@@ -26,15 +26,17 @@ var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
 })
 
 type Server struct {
+	Sockets       Sockets
 	events        map[string]SocketIOEvent
-	authenticator func(interface{}) bool
 	Rooms         map[string]*Room // key: roomName
+	authenticator func(interface{}) bool
 }
 
 func NewServer(opt ServerOptions) (server *Server) {
 	server = &Server{
-		events: map[string]SocketIOEvent{},
-		Rooms:  map[string]*Room{},
+		Sockets: Sockets{},
+		events:  map[string]SocketIOEvent{},
+		Rooms:   map[string]*Room{},
 	}
 	server.Setup(opt)
 	return
@@ -69,7 +71,7 @@ func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		PingTimeout:  serverOptions.PingTimeout,
 	})
 	if !client.IsConnected {
-		client.Attr = newClientHandler(svr)
+		client.Attr = newManager(svr)
 		client.OnRecvPacket = onEngineIOClientRecvPacket
 		client.OnClosed = onEngineIOClientClosed
 

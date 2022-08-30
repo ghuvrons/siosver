@@ -9,7 +9,7 @@ import (
 
 type SocketIOEvent func(client *Socket, args ...interface{})
 
-type clientHandler struct {
+type Manager struct {
 	server          *Server
 	sockets         map[string]*Socket // key: namespace
 	events          map[string]SocketIOEvent
@@ -23,25 +23,25 @@ var socketIOBufferIndex = map[string]interface{}{
 	"num":          0,
 }
 
-func newClientHandler(server *Server) *clientHandler {
-	return &clientHandler{
+func newManager(server *Server) *Manager {
+	return &Manager{
 		server:  server,
 		sockets: map[string]*Socket{},
 	}
 }
 
 func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.Packet) {
-	cHandler, isOk := eioClient.Attr.(*clientHandler)
+	manager, isOk := eioClient.Attr.(*Manager)
 	if !isOk {
 		return
 	}
 
 	if eioPacket.Type == engineio.PACKET_PAYLOAD {
-		if cHandler.bufferingsocket == nil {
+		if manager.bufferingsocket == nil {
 			return
 		}
 
-		if packet := cHandler.bufferingsocket.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
+		if packet := manager.bufferingsocket.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
 			buf := bytes.NewBuffer(eioPacket.Data)
 			sioPacketSetBuffer(packet.data, buf)
 			packet.numOfBuffer--
@@ -49,9 +49,9 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.
 			// buffering complete
 			if packet.numOfBuffer == 0 {
 				eioClient.IsReadingPayload = false
-				cHandler.bufferingsocket.onMessage(packet)
-				cHandler.bufferingsocket.tmpPacket = nil
-				cHandler.bufferingsocket = nil
+				manager.bufferingsocket.onMessage(packet)
+				manager.bufferingsocket.tmpPacket = nil
+				manager.bufferingsocket = nil
 			}
 		}
 		return
@@ -63,21 +63,21 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.
 	switch packet.packetType {
 	case __SIO_PACKET_CONNECT:
 		socket := newSocket(packet.namespace)
-		socket.server = cHandler.server
+		socket.server = manager.server
 		socket.eioClient = eioClient
-		cHandler.sockets[packet.namespace] = socket
+		manager.sockets[packet.namespace] = socket
 		socket.connect(packet)
 		return
 
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT:
 		if eioClient.Attr != nil {
-			socket, isFound := cHandler.sockets[packet.namespace]
+			socket, isFound := manager.sockets[packet.namespace]
 
 			if isFound && socket != nil {
 				if packet.packetType == __SIO_PACKET_BINARY_EVENT {
 					eioClient.IsReadingPayload = true
 					socket.tmpPacket = packet
-					cHandler.bufferingsocket = socket
+					manager.bufferingsocket = socket
 
 				} else {
 					socket.onMessage(packet)
@@ -90,10 +90,10 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.
 }
 
 func onEngineIOClientClosed(eioClient *engineio.Client) {
-	if cHandler, isOk := eioClient.Attr.(*clientHandler); isOk {
-		eventFunc, isEventFound := cHandler.events["close"]
+	if manager, isOk := eioClient.Attr.(*Manager); isOk {
+		eventFunc, isEventFound := manager.events["close"]
 
-		for _, socket := range cHandler.sockets {
+		for _, socket := range manager.sockets {
 			if isEventFound && eventFunc != nil {
 				eventFunc(socket)
 			}

@@ -14,7 +14,7 @@ type Socket struct {
 	rooms     map[string]*Room // key: roomName
 }
 
-type Sockets []*Socket
+type Sockets map[uuid.UUID]*Socket
 
 func newSocket(namespace string) *Socket {
 	var c = &Socket{
@@ -33,9 +33,9 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	cHandler, isOk := socket.eioClient.Attr.(*clientHandler)
-	if isOk && cHandler.server.authenticator != nil {
-		if !cHandler.server.authenticator(data) {
+	manager, isOk := socket.eioClient.Attr.(*Manager)
+	if isOk && manager.server.authenticator != nil {
+		if !manager.server.authenticator(data) {
 			errConnData := map[string]interface{}{
 				"message": "Not authorized",
 				"data": map[string]interface{}{
@@ -43,20 +43,19 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 					"label": "Invalid credentials",
 				},
 			}
-			packet := newSocketIOPacket(__SIO_PACKET_CONNECT_ERROR, errConnData)
-			socket.send(packet)
+			socket.send(newSocketIOPacket(__SIO_PACKET_CONNECT_ERROR, errConnData))
 			return
 		}
 	}
 
 	// if success
-	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()})
-	socket.send(packet)
+	socket.send(newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
 
-	eventFunc, isEventFound := cHandler.server.events["connection"]
+	eventFunc, isEventFound := manager.server.events["connection"]
 	if isEventFound && eventFunc != nil {
 		eventFunc(socket)
 	}
+	socket.server.Sockets[socket.id] = socket
 }
 
 func (socket *Socket) send(packet *socketIOPacket) {
@@ -79,24 +78,23 @@ func (socket *Socket) send(packet *socketIOPacket) {
 }
 
 func (socket *Socket) Emit(arg ...interface{}) {
-	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
-	socket.send(packet)
+	socket.send(newSocketIOPacket(__SIO_PACKET_EVENT, arg...))
 }
 
 func (socket *Socket) onMessage(packet *socketIOPacket) {
-	cHandler, isOk := socket.eioClient.Attr.(*clientHandler)
+	manager, isOk := socket.eioClient.Attr.(*Manager)
 	if !isOk {
 		return
 	}
 
-	eventFunc, isEventFound := cHandler.events[""]
+	eventFunc, isEventFound := manager.events[""]
 	args, isOk := packet.data.([]interface{})
 
 	if isOk && len(args) > 0 {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			tmpEventFunc, isFound := cHandler.events[event]
+			tmpEventFunc, isFound := manager.events[event]
 			if isFound {
 				eventFunc = tmpEventFunc
 				args = args[1:]
@@ -110,48 +108,77 @@ func (socket *Socket) onMessage(packet *socketIOPacket) {
 }
 
 func (socket *Socket) onClose() {
+	delete(socket.server.Sockets, socket.id)
 	for _, room := range socket.rooms {
 		room.leave(socket)
 	}
 }
 
 func (socket *Socket) SocketJoin(roomName string) {
-	(Sockets{socket}).SocketJoin(roomName)
+	room, isFound := socket.server.Rooms[roomName]
+	if !isFound {
+		room = socket.server.CreateRoom(roomName)
+	}
+	room.join(socket)
+}
+
+func (socket *Socket) SocketLeave(roomName string) {
+	room, isFound := socket.server.Rooms[roomName]
+	if !isFound {
+		return
+	}
+	room.leave(socket)
+}
+
+// Broadcasting to Sockets
+
+func (sockets Sockets) Emit(arg ...interface{}) {
+	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
+	for _, socket := range sockets {
+		socket.send(packet)
+	}
 }
 
 func (sockets Sockets) SocketJoin(roomName string) {
+	var server *Server = nil
+
 	if len(sockets) == 0 {
 		return
 	}
 
-	server := sockets[0].server
+	for _, socket := range sockets {
+		server = socket.server
+		break
+	}
+
 	room, isFound := server.Rooms[roomName]
 	if !isFound {
 		room = server.CreateRoom(roomName)
 	}
 
-	for _, c := range sockets {
-		room.join(c)
+	for _, socket := range sockets {
+		room.join(socket)
 	}
 }
 
-func (socket *Socket) SocketLeave(roomName string) {
-	(Sockets{socket}).SocketLeave(roomName)
-}
-
 func (sockets Sockets) SocketLeave(roomName string) {
+	var server *Server = nil
+
 	if len(sockets) == 0 {
 		return
 	}
 
-	server := sockets[0].server
+	for _, socket := range sockets {
+		server = socket.server
+		break
+	}
 	room, isFound := server.Rooms[roomName]
 	if !isFound {
 		return
 	}
 
-	for _, c := range sockets {
-		room.leave(c)
+	for _, socket := range sockets {
+		room.leave(socket)
 	}
 
 	if len(room.sockets) == 0 {
