@@ -32,7 +32,7 @@ func socketIOInit() http.Handler {
 	// 	return true
 	// })
 
-	io.On("connection", func(client *siosver.SocketIOClient, _ ...interface{}) {
+	io.On("connection", func(client *siosver.Socket, _ ...interface{}) {
 		fmt.Println("new client", client)
 
 		// cbdata := map[string]interface{}{
@@ -41,7 +41,7 @@ func socketIOInit() http.Handler {
 		// client.Emit("test_bin", cbdata)
 	})
 
-	io.On("message", func(client *siosver.SocketIOClient, data ...interface{}) {
+	io.On("message", func(client *siosver.Socket, data ...interface{}) {
 		fmt.Println("new message", data)
 
 		// cbdata := map[string]interface{}{

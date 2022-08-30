@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ghuvrons/siosver/engineio"
 	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
@@ -21,8 +22,8 @@ var serverOptions = &ServerOptions{
 }
 
 var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
-	client := conn.Request().Context().Value(eioCtxKeyClient).(*engineIOClient)
-	client.serveWebsocket(conn)
+	client := conn.Request().Context().Value(engineio.CtxKeyClient).(*engineio.Client)
+	client.ServeWebsocket(conn)
 })
 
 type Server struct {
@@ -64,29 +65,28 @@ func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	sid := req.URL.Query().Get("sid")
 	transport := req.URL.Query().Get("transport")
 
-	client := newEngineIOClient(sid)
-	if !client.isConnected {
-		cHandler := &clientHandler{
-			server:     svr,
-			sioClients: map[string]*SocketIOClient{},
-		}
-		client.attr = cHandler
-		client.onRecvPacket = onEngineIOClientRecvPacket
-		client.onClosed = onEngineIOClientClosed
+	client := engineio.NewClient(sid, engineio.EngineIOOptions{
+		PingInterval: serverOptions.PingInterval,
+		PingTimeout:  serverOptions.PingTimeout,
+	})
+	if !client.IsConnected {
+		client.Attr = newClientHandler(svr)
+		client.OnRecvPacket = onEngineIOClientRecvPacket
+		client.OnClosed = onEngineIOClientClosed
 
 		if transport == "websocket" {
-			client.transport = __TRANSPORT_WEBSOCKET
+			client.Transport = engineio.TRANSPORT_WEBSOCKET
 		}
 
-		client.connect()
+		client.Connect()
 	}
 
 	switch transport {
 	case "polling":
-		client.servePolling(w, req)
+		client.ServePolling(w, req)
 
 	case "websocket":
-		ctxWithClient := context.WithValue(req.Context(), eioCtxKeyClient, client)
+		ctxWithClient := context.WithValue(req.Context(), engineio.CtxKeyClient, client)
 		wsHandler.ServeHTTP(w, req.WithContext(ctxWithClient))
 		fmt.Println("websocket closed")
 	}
@@ -110,7 +110,7 @@ func (svr *Server) On(event string, f SocketIOEvent) {
 func (svr *Server) CreateRoom(roomName string) (room *Room) {
 	room = &Room{
 		Name:    roomName,
-		clients: map[uuid.UUID]*SocketIOClient{},
+		sockets: map[uuid.UUID]*Socket{},
 	}
 
 	if svr.Rooms == nil {

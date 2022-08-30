@@ -3,15 +3,17 @@ package siosver
 import (
 	"bytes"
 	"reflect"
+
+	"github.com/ghuvrons/siosver/engineio"
 )
 
-type SocketIOEvent func(client *SocketIOClient, args ...interface{})
+type SocketIOEvent func(client *Socket, args ...interface{})
 
 type clientHandler struct {
-	server             *Server
-	sioClients         map[string]*SocketIOClient // key: namespace
-	events             map[string]SocketIOEvent
-	bufferingSioClient *SocketIOClient
+	server          *Server
+	sockets         map[string]*Socket // key: namespace
+	events          map[string]SocketIOEvent
+	bufferingsocket *Socket
 }
 
 var typeOfBuffer = reflect.ValueOf(bytes.Buffer{}).Type()
@@ -21,57 +23,64 @@ var socketIOBufferIndex = map[string]interface{}{
 	"num":          0,
 }
 
-func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPacket) {
-	cHandler, isOk := eioClient.attr.(*clientHandler)
+func newClientHandler(server *Server) *clientHandler {
+	return &clientHandler{
+		server:  server,
+		sockets: map[string]*Socket{},
+	}
+}
+
+func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.Packet) {
+	cHandler, isOk := eioClient.Attr.(*clientHandler)
 	if !isOk {
 		return
 	}
 
-	if eioPacket.packetType == __EIO_PAYLOAD {
-		if cHandler.bufferingSioClient == nil {
+	if eioPacket.Type == engineio.PACKET_PAYLOAD {
+		if cHandler.bufferingsocket == nil {
 			return
 		}
 
-		if packet := cHandler.bufferingSioClient.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
-			buf := bytes.NewBuffer(eioPacket.data)
+		if packet := cHandler.bufferingsocket.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
+			buf := bytes.NewBuffer(eioPacket.Data)
 			sioPacketSetBuffer(packet.data, buf)
 			packet.numOfBuffer--
 
 			// buffering complete
 			if packet.numOfBuffer == 0 {
-				eioClient.isReadingPayload = false
-				cHandler.bufferingSioClient.onMessage(packet)
-				cHandler.bufferingSioClient.tmpPacket = nil
-				cHandler.bufferingSioClient = nil
+				eioClient.IsReadingPayload = false
+				cHandler.bufferingsocket.onMessage(packet)
+				cHandler.bufferingsocket.tmpPacket = nil
+				cHandler.bufferingsocket = nil
 			}
 		}
 		return
 	}
 
-	buf := bytes.NewBuffer(eioPacket.data)
+	buf := bytes.NewBuffer(eioPacket.Data)
 	packet := decodeAsSocketIOPacket(buf)
 
 	switch packet.packetType {
 	case __SIO_PACKET_CONNECT:
-		sioClient := newSocketIOClient(packet.namespace)
-		sioClient.server = cHandler.server
-		sioClient.eioClient = eioClient
-		cHandler.sioClients[packet.namespace] = sioClient
-		sioClient.connect(packet)
+		socket := newSocket(packet.namespace)
+		socket.server = cHandler.server
+		socket.eioClient = eioClient
+		cHandler.sockets[packet.namespace] = socket
+		socket.connect(packet)
 		return
 
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT:
-		if eioClient.attr != nil {
-			sioClient, isFound := cHandler.sioClients[packet.namespace]
+		if eioClient.Attr != nil {
+			socket, isFound := cHandler.sockets[packet.namespace]
 
-			if isFound && sioClient != nil {
+			if isFound && socket != nil {
 				if packet.packetType == __SIO_PACKET_BINARY_EVENT {
-					eioClient.isReadingPayload = true
-					sioClient.tmpPacket = packet
-					cHandler.bufferingSioClient = sioClient
+					eioClient.IsReadingPayload = true
+					socket.tmpPacket = packet
+					cHandler.bufferingsocket = socket
 
 				} else {
-					sioClient.onMessage(packet)
+					socket.onMessage(packet)
 				}
 
 				return
@@ -80,15 +89,15 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 	}
 }
 
-func onEngineIOClientClosed(eioClient *engineIOClient) {
-	if cHandler, isOk := eioClient.attr.(*clientHandler); isOk {
+func onEngineIOClientClosed(eioClient *engineio.Client) {
+	if cHandler, isOk := eioClient.Attr.(*clientHandler); isOk {
 		eventFunc, isEventFound := cHandler.events["close"]
 
-		for _, sioClient := range cHandler.sioClients {
+		for _, socket := range cHandler.sockets {
 			if isEventFound && eventFunc != nil {
-				eventFunc(sioClient)
+				eventFunc(socket)
 			}
-			sioClient.onClose()
+			socket.onClose()
 		}
 	}
 }

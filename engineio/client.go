@@ -1,4 +1,4 @@
-package siosver
+package engineio
 
 import (
 	"bytes"
@@ -11,23 +11,28 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-type engineIOClient struct {
+type Client struct {
 	id               uuid.UUID
-	isConnected      bool
-	transport        eioTypeTransport
-	outbox           chan *engineIOPacket
+	IsConnected      bool
+	Transport        TransportType
+	outbox           chan *Packet
 	pongIrq          chan bool
 	pingTimer        *time.Timer
 	isPollingWaiting bool
-	isReadingPayload bool
-	onRecvPacket     func(*engineIOClient, *engineIOPacket)
-	onClosed         func(*engineIOClient)
+	IsReadingPayload bool
+
+	// events
+	OnRecvPacket func(*Client, *Packet)
+	OnClosed     func(*Client)
+
+	// options
+	options EngineIOOptions
 
 	// can use for optional attibute
-	attr interface{}
+	Attr interface{}
 }
 
-func newEngineIOClient(id string) *engineIOClient {
+func NewClient(id string, opt EngineIOOptions) *Client {
 	var uid uuid.UUID
 
 	if id == "" {
@@ -39,13 +44,14 @@ func newEngineIOClient(id string) *engineIOClient {
 	// search client in memory
 	client, isFound := eioClients[uid]
 	if !isFound || client == nil {
-		client = &engineIOClient{
+		client = &Client{
 			id:          uid,
-			isConnected: false,
-			outbox:      make(chan *engineIOPacket),
-			pingTimer:   time.NewTimer(time.Duration(serverOptions.PingInterval) * time.Millisecond),
+			IsConnected: false,
+			outbox:      make(chan *Packet),
+			pingTimer:   time.NewTimer(time.Duration(opt.PingInterval) * time.Millisecond),
 		}
-		client.transport = __TRANSPORT_POLLING
+		client.options = opt
+		client.Transport = TRANSPORT_POLLING
 		eioClients[uid] = client
 	}
 
@@ -53,20 +59,20 @@ func newEngineIOClient(id string) *engineIOClient {
 }
 
 // Handle request connect by client
-func (client *engineIOClient) connect() {
+func (client *Client) Connect() {
 	data := map[string]interface{}{
 		"sid":          client.id.String(),
 		"upgrades":     []string{"websocket"},
-		"pingInterval": serverOptions.PingInterval,
-		"pingTimeout":  serverOptions.PingTimeout,
+		"pingInterval": client.options.PingInterval,
+		"pingTimeout":  client.options.PingTimeout,
 	}
-	client.isConnected = true
+	client.IsConnected = true
 	jsonData, _ := json.Marshal(data)
-	client.send(newEngineIOPacket(__EIO_PACKET_OPEN, jsonData))
+	client.Send(NewPacket(PACKET_OPEN, jsonData))
 }
 
 // send to client
-func (client *engineIOClient) send(packet *engineIOPacket, isWaitSent ...bool) {
+func (client *Client) Send(packet *Packet, isWaitSent ...bool) {
 	sendingFlag := false
 
 	if len(isWaitSent) > 0 && isWaitSent[0] {
@@ -79,7 +85,7 @@ func (client *engineIOClient) send(packet *engineIOPacket, isWaitSent ...bool) {
 		case client.outbox <- packet:
 			return
 
-		case <-time.After(time.Duration(serverOptions.PingInterval) * time.Millisecond):
+		case <-time.After(time.Duration(client.options.PingInterval) * time.Millisecond):
 			return
 		}
 	}()
@@ -92,26 +98,26 @@ func (client *engineIOClient) send(packet *engineIOPacket, isWaitSent ...bool) {
 }
 
 // handleRequest
-func (client *engineIOClient) handleRequest(buf *bytes.Buffer) {
+func (client *Client) handleRequest(buf *bytes.Buffer) {
 	// TODO : return error
 	for {
-		var packet *engineIOPacket = nil
+		var packet *Packet = nil
 
 		if buf.Len() == 0 {
 			break
 		}
 
-		if client.transport == __TRANSPORT_WEBSOCKET && client.isReadingPayload {
+		if client.Transport == TRANSPORT_WEBSOCKET && client.IsReadingPayload {
 			packet, _ = decodeAsEngineIOPacket(buf, true)
 		} else {
 			packet, _ = decodeAsEngineIOPacket(buf)
 		}
 
-		if packet.packetType == __EIO_PACKET_MESSAGE || packet.packetType == __EIO_PAYLOAD {
-			if client.onRecvPacket != nil {
-				client.onRecvPacket(client, packet)
+		if packet.Type == PACKET_MESSAGE || packet.Type == PACKET_PAYLOAD {
+			if client.OnRecvPacket != nil {
+				client.OnRecvPacket(client, packet)
 			}
-		} else if packet.packetType == __EIO_PACKET_PONG {
+		} else if packet.Type == PACKET_PONG {
 			if client.pongIrq != nil {
 				client.pongIrq <- true
 			}
@@ -121,15 +127,15 @@ func (client *engineIOClient) handleRequest(buf *bytes.Buffer) {
 }
 
 // Handle transport polling
-func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Request) {
+func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 	// TODO : return error
 	switch req.Method {
 
 	// listener: packet sender
 	case "GET":
-		if !client.isConnected {
+		if !client.IsConnected {
 			client.resetPingTimer()
-			packet := newEngineIOPacket(__EIO_PACKET_CLOSE, []byte{})
+			packet := NewPacket(PACKET_CLOSE, []byte{})
 			w.Write(packet.encode())
 			return
 		}
@@ -149,7 +155,7 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 			client.pongIrq = make(chan bool, 1)
 
 			client.resetPingTimer()
-			packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
+			packet := NewPacket(PACKET_PING, []byte{})
 			if _, err := w.Write(packet.encode()); err != nil {
 				client.close()
 				return
@@ -185,12 +191,12 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 }
 
 // Handle transport websocket
-func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
+func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 	// TODO : return error
 	var message []byte
 
 	defer func() {
-		if client.isConnected {
+		if client.IsConnected {
 			client.close()
 			conn.Close()
 		}
@@ -198,7 +204,7 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 
 	// handshacking for change transport
 	for {
-		if client.transport == __TRANSPORT_WEBSOCKET {
+		if client.Transport == TRANSPORT_WEBSOCKET {
 			break
 		}
 
@@ -214,11 +220,11 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 				return
 			}
 			if client.isPollingWaiting {
-				client.outbox <- newEngineIOPacket(__EIO_PACKET_NOOP, []byte{})
+				client.outbox <- NewPacket(PACKET_NOOP, []byte{})
 			}
 
-		case string(__EIO_PACKET_UPGRADE):
-			client.transport = __TRANSPORT_WEBSOCKET
+		case string(PACKET_UPGRADE):
+			client.Transport = TRANSPORT_WEBSOCKET
 
 		default:
 			client.close()
@@ -228,13 +234,13 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	// listener: packet sender
 	go func() {
 		defer func() {
-			if client.isConnected {
+			if client.IsConnected {
 				client.close()
 				conn.Close()
 			}
 		}()
 
-		for client.isConnected {
+		for client.IsConnected {
 			select {
 			case packet := <-client.outbox:
 				if _, err := conn.Write(packet.encode(true)); err != nil {
@@ -245,13 +251,13 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 				}
 
 			case <-client.pingTimer.C:
-				if !client.isConnected {
+				if !client.IsConnected {
 					return
 				}
 				client.pongIrq = make(chan bool, 1)
 
 				client.resetPingTimer()
-				packet := newEngineIOPacket(__EIO_PACKET_PING, []byte{})
+				packet := NewPacket(PACKET_PING, []byte{})
 				if _, err := conn.Write(packet.encode()); err != nil {
 					return
 				}
@@ -269,7 +275,7 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	}()
 
 	// listener: packet reciever
-	for client.isConnected {
+	for client.IsConnected {
 		message = []byte{}
 		if err := websocket.Message.Receive(conn, &message); err != nil {
 			return
@@ -281,22 +287,22 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	}
 }
 
-func (client *engineIOClient) close() {
-	if !client.isConnected {
+func (client *Client) close() {
+	if !client.IsConnected {
 		return
 	}
-	client.isConnected = false
+	client.IsConnected = false
 	delete(eioClients, client.id)
-	if client.onClosed != nil {
-		client.onClosed(client)
+	if client.OnClosed != nil {
+		client.OnClosed(client)
 	}
 }
 
 // Handle transport websocket
-func (client *engineIOClient) resetPingTimer() {
-	client.pingTimer.Reset(time.Duration(serverOptions.PingInterval) * time.Millisecond)
+func (client *Client) resetPingTimer() {
+	client.pingTimer.Reset(time.Duration(client.options.PingInterval) * time.Millisecond)
 }
 
-func (client *engineIOClient) pingWasTimeout() <-chan time.Time {
-	return time.After(time.Duration(serverOptions.PingTimeout) * time.Millisecond)
+func (client *Client) pingWasTimeout() <-chan time.Time {
+	return time.After(time.Duration(client.options.PingTimeout) * time.Millisecond)
 }

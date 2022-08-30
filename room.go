@@ -4,20 +4,20 @@ import "github.com/google/uuid"
 
 type Room struct {
 	Name    string
-	clients map[uuid.UUID]*SocketIOClient
+	sockets map[uuid.UUID]*Socket
 }
 
-func (room *Room) join(sioClient *SocketIOClient) {
-	room.clients[sioClient.id] = sioClient
-	sioClient.rooms[room.Name] = room
+func (room *Room) join(socket *Socket) {
+	room.sockets[socket.id] = socket
+	socket.rooms[room.Name] = room
 }
 
-func (room *Room) leave(sioClient *SocketIOClient) {
-	delete(room.clients, sioClient.id)
+func (room *Room) leave(socket *Socket) {
+	delete(room.sockets, socket.id)
 }
 
 func (room *Room) Emit(arg ...interface{}) {
-	for _, c := range room.clients {
+	for _, c := range room.sockets {
 		c.Emit(arg...)
 	}
 }

@@ -1,22 +1,23 @@
 package siosver
 
 import (
+	"github.com/ghuvrons/siosver/engineio"
 	"github.com/google/uuid"
 )
 
-type SocketIOClient struct {
+type Socket struct {
 	id        uuid.UUID
 	server    *Server
-	eioClient *engineIOClient
+	eioClient *engineio.Client
 	namespace string
 	tmpPacket *socketIOPacket
 	rooms     map[string]*Room // key: roomName
 }
 
-type SocketIOClients []*SocketIOClient
+type Sockets []*Socket
 
-func newSocketIOClient(namespace string) *SocketIOClient {
-	var c = &SocketIOClient{
+func newSocket(namespace string) *Socket {
+	var c = &Socket{
 		id:        uuid.New(),
 		namespace: namespace,
 		rooms:     map[string]*Room{},
@@ -25,14 +26,14 @@ func newSocketIOClient(namespace string) *SocketIOClient {
 }
 
 // Handle client's connect request
-func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
+func (socket *Socket) connect(conpacket *socketIOPacket) {
 	// do authenticating ...
 	var data interface{}
 
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	cHandler, isOk := client.eioClient.attr.(*clientHandler)
+	cHandler, isOk := socket.eioClient.Attr.(*clientHandler)
 	if isOk && cHandler.server.authenticator != nil {
 		if !cHandler.server.authenticator(data) {
 			errConnData := map[string]interface{}{
@@ -43,47 +44,47 @@ func (client *SocketIOClient) connect(conpacket *socketIOPacket) {
 				},
 			}
 			packet := newSocketIOPacket(__SIO_PACKET_CONNECT_ERROR, errConnData)
-			client.send(packet)
+			socket.send(packet)
 			return
 		}
 	}
 
 	// if success
-	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": client.id.String()})
-	client.send(packet)
+	packet := newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()})
+	socket.send(packet)
 
 	eventFunc, isEventFound := cHandler.server.events["connection"]
 	if isEventFound && eventFunc != nil {
-		eventFunc(client)
+		eventFunc(socket)
 	}
 }
 
-func (client *SocketIOClient) send(packet *socketIOPacket) {
-	packet.namespace = client.namespace
+func (socket *Socket) send(packet *socketIOPacket) {
+	packet.namespace = socket.namespace
 	encodedPacket, buffers := packet.encode()
-	eioPacket := newEngineIOPacket(__EIO_PACKET_MESSAGE, encodedPacket)
+	eioPacket := engineio.NewPacket(engineio.PACKET_MESSAGE, encodedPacket)
 
 	if len(buffers) == 0 {
-		client.eioClient.send(eioPacket)
+		socket.eioClient.Send(eioPacket)
 
 	} else {
 		// binary message
-		client.eioClient.send(eioPacket, true)
+		socket.eioClient.Send(eioPacket, true)
 
 		for _, buf := range buffers {
-			eioPacket = newEngineIOPacket(__EIO_PAYLOAD, buf.Bytes())
-			client.eioClient.send(eioPacket, true)
+			eioPacket = engineio.NewPacket(engineio.PACKET_PAYLOAD, buf.Bytes())
+			socket.eioClient.Send(eioPacket, true)
 		}
 	}
 }
 
-func (client *SocketIOClient) Emit(arg ...interface{}) {
+func (socket *Socket) Emit(arg ...interface{}) {
 	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
-	client.send(packet)
+	socket.send(packet)
 }
 
-func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
-	cHandler, isOk := client.eioClient.attr.(*clientHandler)
+func (socket *Socket) onMessage(packet *socketIOPacket) {
+	cHandler, isOk := socket.eioClient.Attr.(*clientHandler)
 	if !isOk {
 		return
 	}
@@ -104,56 +105,56 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 	}
 
 	if isEventFound && eventFunc != nil {
-		eventFunc(client, args...)
+		eventFunc(socket, args...)
 	}
 }
 
-func (client *SocketIOClient) onClose() {
-	for _, room := range client.rooms {
-		room.leave(client)
+func (socket *Socket) onClose() {
+	for _, room := range socket.rooms {
+		room.leave(socket)
 	}
 }
 
-func (client *SocketIOClient) SocketJoin(roomName string) {
-	(SocketIOClients{client}).SocketJoin(roomName)
+func (socket *Socket) SocketJoin(roomName string) {
+	(Sockets{socket}).SocketJoin(roomName)
 }
 
-func (clients SocketIOClients) SocketJoin(roomName string) {
-	if len(clients) == 0 {
+func (sockets Sockets) SocketJoin(roomName string) {
+	if len(sockets) == 0 {
 		return
 	}
 
-	server := clients[0].server
+	server := sockets[0].server
 	room, isFound := server.Rooms[roomName]
 	if !isFound {
 		room = server.CreateRoom(roomName)
 	}
 
-	for _, c := range clients {
+	for _, c := range sockets {
 		room.join(c)
 	}
 }
 
-func (client *SocketIOClient) SocketLeave(roomName string) {
-	(SocketIOClients{client}).SocketLeave(roomName)
+func (socket *Socket) SocketLeave(roomName string) {
+	(Sockets{socket}).SocketLeave(roomName)
 }
 
-func (clients SocketIOClients) SocketLeave(roomName string) {
-	if len(clients) == 0 {
+func (sockets Sockets) SocketLeave(roomName string) {
+	if len(sockets) == 0 {
 		return
 	}
 
-	server := clients[0].server
+	server := sockets[0].server
 	room, isFound := server.Rooms[roomName]
 	if !isFound {
 		return
 	}
 
-	for _, c := range clients {
+	for _, c := range sockets {
 		room.leave(c)
 	}
 
-	if len(room.clients) == 0 {
+	if len(room.sockets) == 0 {
 		server.DeleteRoom(roomName)
 	}
 }
