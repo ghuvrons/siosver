@@ -27,7 +27,7 @@ var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
 
 type Server struct {
 	Sockets       Sockets
-	events        map[string]SocketIOEvent
+	events        map[string]EventHandler
 	Rooms         map[string]*Room // key: roomName
 	authenticator func(interface{}) bool
 }
@@ -35,7 +35,7 @@ type Server struct {
 func NewServer(opt ServerOptions) (server *Server) {
 	server = &Server{
 		Sockets: Sockets{},
-		events:  map[string]SocketIOEvent{},
+		events:  map[string]EventHandler{},
 		Rooms:   map[string]*Room{},
 	}
 	server.Setup(opt)
@@ -96,12 +96,12 @@ func (svr *Server) Authenticator(f func(interface{}) bool) {
 	svr.authenticator = f
 }
 
-func (svr *Server) On(event string, f SocketIOEvent) {
+func (svr *Server) On(event string, f EventHandler) {
 	if event == "message" {
 		event = ""
 	}
 	if svr.events == nil {
-		svr.events = map[string]SocketIOEvent{}
+		svr.events = map[string]EventHandler{}
 	}
 	svr.events[event] = f
 }

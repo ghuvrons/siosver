@@ -82,28 +82,27 @@ func (socket *Socket) Emit(arg ...interface{}) {
 }
 
 func (socket *Socket) onMessage(packet *socketIOPacket) {
-	manager, isOk := socket.eioClient.Attr.(*Manager)
-	if !isOk {
-		return
-	}
-
-	eventFunc, isEventFound := manager.events[""]
+	eventFunc, isEventFound := socket.server.events[""]
 	args, isOk := packet.data.([]interface{})
 
 	if isOk && len(args) > 0 {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			tmpEventFunc, isFound := manager.events[event]
+			tmpEventFunc, isFound := socket.server.events[event]
 			if isFound {
 				eventFunc = tmpEventFunc
+				isEventFound = isFound
 				args = args[1:]
 			}
 		}
 	}
 
 	if isEventFound && eventFunc != nil {
-		eventFunc(socket, args...)
+		resp := eventFunc(socket, args...)
+		if packet.ackId >= 0 {
+			socket.send(newSocketIOPacket(__SIO_PACKET_ACK, resp...).withAck(packet.ackId))
+		}
 	}
 }
 

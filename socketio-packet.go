@@ -53,9 +53,13 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 	return packet
 }
 
+func (packet *socketIOPacket) withAck(ackId int) *socketIOPacket {
+	packet.ackId = ackId
+	return packet
+}
+
 func (packet *socketIOPacket) encode() (data []byte, buffers [](*bytes.Buffer)) {
 	// TODO : what if packet type is binary
-	// TODO : what if packet type has ack
 
 	buf := bytes.Buffer{}
 	buffers = [](*bytes.Buffer){}
@@ -87,6 +91,9 @@ func (packet *socketIOPacket) encode() (data []byte, buffers [](*bytes.Buffer)) 
 	}
 
 	// ACK
+	if packet.ackId != -1 {
+		fmt.Fprintf(&buf, "%d", packet.ackId)
+	}
 
 	rawdata, _ := json.Marshal(packet.data)
 	buf.Write(rawdata)

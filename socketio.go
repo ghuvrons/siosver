@@ -7,12 +7,13 @@ import (
 	"github.com/ghuvrons/siosver/engineio"
 )
 
-type SocketIOEvent func(client *Socket, args ...interface{})
+type EventResponse []interface{}
+type EventHandler func(client *Socket, args ...interface{}) EventResponse
 
 type Manager struct {
 	server          *Server
 	sockets         map[string]*Socket // key: namespace
-	events          map[string]SocketIOEvent
+	events          map[string]EventHandler
 	bufferingsocket *Socket
 }
 
