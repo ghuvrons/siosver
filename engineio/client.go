@@ -134,7 +134,6 @@ func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 	// listener: packet sender
 	case "GET":
 		if !client.IsConnected {
-			client.resetPingTimer()
 			packet := NewPacket(PACKET_CLOSE, []byte{})
 			w.Write(packet.encode())
 			return
@@ -183,7 +182,6 @@ func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 		}
 		buf := bytes.NewBuffer(b)
 		client.handleRequest(buf)
-		client.resetPingTimer()
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("ok"))
 		break
@@ -281,7 +279,6 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 			return
 		}
 
-		client.resetPingTimer()
 		buf := bytes.NewBuffer(message)
 		client.handleRequest(buf)
 	}
