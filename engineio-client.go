@@ -137,7 +137,6 @@ func (client *engineIOClient) servePolling(w http.ResponseWriter, req *http.Requ
 		client.isPollingWaiting = true
 		select {
 		case packet := <-client.outbox:
-			client.resetPingTimer()
 			if _, err := w.Write(packet.encode(true)); err != nil {
 				client.close()
 				return
@@ -227,7 +226,6 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 	}
 
 	// listener: packet sender
-	client.resetPingTimer()
 	go func() {
 		defer func() {
 			if client.isConnected {
@@ -239,7 +237,6 @@ func (client *engineIOClient) serveWebsocket(conn *websocket.Conn) {
 		for client.isConnected {
 			select {
 			case packet := <-client.outbox:
-				client.resetPingTimer()
 				if _, err := conn.Write(packet.encode(true)); err != nil {
 					return
 				}

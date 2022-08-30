@@ -54,6 +54,7 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 	switch packet.packetType {
 	case __SIO_PACKET_CONNECT:
 		sioClient := newSocketIOClient(packet.namespace)
+		sioClient.server = cHandler.server
 		sioClient.eioClient = eioClient
 		cHandler.sioClients[packet.namespace] = sioClient
 		sioClient.connect(packet)
@@ -82,10 +83,12 @@ func onEngineIOClientRecvPacket(eioClient *engineIOClient, eioPacket *engineIOPa
 func onEngineIOClientClosed(eioClient *engineIOClient) {
 	if cHandler, isOk := eioClient.attr.(*clientHandler); isOk {
 		eventFunc, isEventFound := cHandler.events["close"]
-		if isEventFound && eventFunc != nil && cHandler.sioClients != nil {
-			for _, sioClient := range cHandler.sioClients {
+
+		for _, sioClient := range cHandler.sioClients {
+			if isEventFound && eventFunc != nil {
 				eventFunc(sioClient)
 			}
+			sioClient.onClose()
 		}
 	}
 }

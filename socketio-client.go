@@ -10,6 +10,7 @@ type SocketIOClient struct {
 	eioClient *engineIOClient
 	namespace string
 	tmpPacket *socketIOPacket
+	rooms     map[string]*Room // key: roomName
 }
 
 type SocketIOClients []*SocketIOClient
@@ -18,6 +19,7 @@ func newSocketIOClient(namespace string) *SocketIOClient {
 	var c = &SocketIOClient{
 		id:        uuid.New(),
 		namespace: namespace,
+		rooms:     map[string]*Room{},
 	}
 	return c
 }
@@ -103,5 +105,55 @@ func (client *SocketIOClient) onMessage(packet *socketIOPacket) {
 
 	if isEventFound && eventFunc != nil {
 		eventFunc(client, args...)
+	}
+}
+
+func (client *SocketIOClient) onClose() {
+	for _, room := range client.rooms {
+		room.leave(client)
+	}
+}
+
+func (client *SocketIOClient) SocketJoin(roomName string) {
+	(SocketIOClients{client}).SocketJoin(roomName)
+}
+
+func (clients SocketIOClients) SocketJoin(roomName string) {
+	if len(clients) == 0 {
+		return
+	}
+
+	server := clients[0].server
+	room, isFound := server.Rooms[roomName]
+	if !isFound {
+		room = server.CreateRoom(roomName)
+	}
+
+	for _, c := range clients {
+		room.join(c)
+	}
+}
+
+func (client *SocketIOClient) SocketLeave(roomName string) {
+	(SocketIOClients{client}).SocketLeave(roomName)
+}
+
+func (clients SocketIOClients) SocketLeave(roomName string) {
+	if len(clients) == 0 {
+		return
+	}
+
+	server := clients[0].server
+	room, isFound := server.Rooms[roomName]
+	if !isFound {
+		return
+	}
+
+	for _, c := range clients {
+		room.leave(c)
+	}
+
+	if len(room.clients) == 0 {
+		server.DeleteRoom(roomName)
 	}
 }

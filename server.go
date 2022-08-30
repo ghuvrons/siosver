@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
 
@@ -27,7 +28,16 @@ var wsHandler = websocket.Handler(func(conn *websocket.Conn) {
 type Server struct {
 	events        map[string]SocketIOEvent
 	authenticator func(interface{}) bool
-	rooms         map[string]*Room // key: roomName
+	Rooms         map[string]*Room // key: roomName
+}
+
+func NewServer(opt ServerOptions) (server *Server) {
+	server = &Server{
+		events: map[string]SocketIOEvent{},
+		Rooms:  map[string]*Room{},
+	}
+	server.Setup(opt)
+	return
 }
 
 func (svr *Server) Setup(opt ServerOptions) {
@@ -57,7 +67,8 @@ func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	client := newEngineIOClient(sid)
 	if !client.isConnected {
 		cHandler := &clientHandler{
-			server: svr,
+			server:     svr,
+			sioClients: map[string]*SocketIOClient{},
 		}
 		client.attr = cHandler
 		client.onRecvPacket = onEngineIOClientRecvPacket
@@ -68,7 +79,6 @@ func (svr *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		client.connect()
-		cHandler.sioClients = map[string]*SocketIOClient{}
 	}
 
 	switch transport {
@@ -94,4 +104,23 @@ func (svr *Server) On(event string, f SocketIOEvent) {
 		svr.events = map[string]SocketIOEvent{}
 	}
 	svr.events[event] = f
+}
+
+// Room methods
+func (svr *Server) CreateRoom(roomName string) (room *Room) {
+	room = &Room{
+		Name:    roomName,
+		clients: map[uuid.UUID]*SocketIOClient{},
+	}
+
+	if svr.Rooms == nil {
+		svr.Rooms = map[string]*Room{}
+	}
+
+	svr.Rooms[roomName] = room
+	return
+}
+
+func (svr *Server) DeleteRoom(roomName string) {
+	delete(svr.Rooms, roomName)
 }
