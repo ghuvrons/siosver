@@ -42,6 +42,9 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 				packet.data = data
 			}
 
+		case uint, uint32, uint16, uint8, int, int32, int16, int8, float32, float64, string, bool, nil:
+			packet.data = data
+
 		default:
 			if len(data) == 1 {
 				packet.data = data[0]
@@ -55,6 +58,14 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 
 func (packet *socketIOPacket) withAck(ackId int) *socketIOPacket {
 	packet.ackId = ackId
+
+	switch packet.data.(type) {
+	case []interface{}:
+		break
+	default:
+		packet.data = []interface{}{packet.data}
+	}
+
 	return packet
 }
 
