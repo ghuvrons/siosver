@@ -227,6 +227,9 @@ func sioPacketGetBuffer(buffers *([]*bytes.Buffer), v interface{}) bool {
 		for j := 0; j < rv.Len(); j++ {
 			rvv := rv.Index(j)
 			if rkv := rvv.Kind(); rkv == reflect.Interface {
+				if rvv.IsNil() {
+					continue
+				}
 				rvv = rvv.Elem()
 			}
 			if isFound := sioPacketGetBuffer(buffers, rvv.Interface()); isFound {
@@ -239,6 +242,9 @@ func sioPacketGetBuffer(buffers *([]*bytes.Buffer), v interface{}) bool {
 		}
 
 	case reflect.Interface:
+		if rv.IsNil() {
+			return false
+		}
 		rvv := rv.Elem()
 		if isFound := sioPacketGetBuffer(buffers, rvv.Interface()); isFound {
 			bufPtr, isOk := rvv.Interface().(*bytes.Buffer)

@@ -138,6 +138,13 @@ func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 			w.Write(packet.encode())
 			return
 		}
+		if client.Transport != TRANSPORT_POLLING {
+			if _, err := w.Write(NewPacket(PACKET_NOOP, []byte{}).encode(true)); err != nil {
+				client.close()
+				return
+			}
+			return
+		}
 
 		client.isPollingWaiting = true
 		select {
@@ -201,11 +208,7 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 	}()
 
 	// handshacking for change transport
-	for {
-		if client.Transport == TRANSPORT_WEBSOCKET {
-			break
-		}
-
+	for isHandshackingFinished := false; !isHandshackingFinished; {
 		message = []byte{}
 		err := websocket.Message.Receive(conn, &message)
 		if err != nil {
@@ -217,15 +220,18 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 			if _, err := conn.Write([]byte("3probe")); err != nil {
 				return
 			}
+			client.Transport = TRANSPORT_WEBSOCKET
 			if client.isPollingWaiting {
 				client.outbox <- NewPacket(PACKET_NOOP, []byte{})
 			}
 
 		case string(PACKET_UPGRADE):
-			client.Transport = TRANSPORT_WEBSOCKET
+			isHandshackingFinished = true
+			break
 
 		default:
 			client.close()
+			return
 		}
 	}
 
