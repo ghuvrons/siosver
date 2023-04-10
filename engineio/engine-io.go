@@ -1,6 +1,10 @@
 package engineio
 
-import "github.com/google/uuid"
+import (
+	"sync"
+
+	"github.com/google/uuid"
+)
 
 type CtxKey byte
 
@@ -19,3 +23,4 @@ type EngineIOOptions struct {
 }
 
 var eioClients map[uuid.UUID]*Client = map[uuid.UUID]*Client{}
+var eioClientsMutex *sync.Mutex = &sync.Mutex{}

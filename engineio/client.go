@@ -42,6 +42,7 @@ func NewClient(id string, opt EngineIOOptions) *Client {
 	}
 
 	// search client in memory
+	eioClientsMutex.Lock()
 	client, isFound := eioClients[uid]
 	if !isFound || client == nil {
 		client = &Client{
@@ -54,6 +55,7 @@ func NewClient(id string, opt EngineIOOptions) *Client {
 		client.Transport = TRANSPORT_POLLING
 		eioClients[uid] = client
 	}
+	eioClientsMutex.Unlock()
 
 	return client
 }
@@ -86,14 +88,13 @@ func (client *Client) Send(packet *Packet, isWaitSent ...bool) {
 			return
 
 		case <-time.After(time.Duration(client.options.PingInterval) * time.Millisecond):
+			packet.callback <- false
 			return
 		}
 	}()
 
 	if sendingFlag {
-		if isSent := <-packet.callback; isSent {
-			return
-		}
+		<-packet.callback
 	}
 }
 
@@ -123,7 +124,6 @@ func (client *Client) handleRequest(buf *bytes.Buffer) {
 			}
 		}
 	}
-	return
 }
 
 // Handle transport polling
@@ -179,7 +179,6 @@ func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 			}()
 		}
 		client.isPollingWaiting = false
-		break
 
 	// listener: packet reciever
 	case "POST":
@@ -191,7 +190,6 @@ func (client *Client) ServePolling(w http.ResponseWriter, req *http.Request) {
 		client.handleRequest(buf)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("ok"))
-		break
 	}
 }
 
@@ -201,10 +199,8 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 	var message []byte
 
 	defer func() {
-		if client.IsConnected {
-			client.close()
-			conn.Close()
-		}
+		client.close()
+		conn.Close()
 	}()
 
 	// handshacking for change transport
@@ -227,10 +223,8 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 
 		case string(PACKET_UPGRADE):
 			isHandshackingFinished = true
-			break
 
 		default:
-			client.close()
 			return
 		}
 	}
@@ -238,10 +232,7 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 	// listener: packet sender
 	go func() {
 		defer func() {
-			if client.IsConnected {
-				client.close()
-				conn.Close()
-			}
+			conn.Close()
 		}()
 
 		for client.IsConnected {
@@ -275,7 +266,6 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 				}
 			}
 		}
-
 	}()
 
 	// listener: packet reciever
@@ -291,6 +281,7 @@ func (client *Client) ServeWebsocket(conn *websocket.Conn) {
 }
 
 func (client *Client) close() {
+	eioClientsMutex.Lock()
 	if !client.IsConnected {
 		return
 	}
@@ -299,6 +290,7 @@ func (client *Client) close() {
 	if client.OnClosed != nil {
 		client.OnClosed(client)
 	}
+	eioClientsMutex.Unlock()
 }
 
 // Handle transport websocket
