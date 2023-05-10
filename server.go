@@ -36,10 +36,10 @@ func NewServer(opt ServerOptions) (server *Server) {
 		Rooms:      map[string]*Room{},
 	}
 
-	server.engineio.OnConnection(func(c *engineio.Client) {
+	server.engineio.OnConnection(func(c *engineio.Socket) {
 		c.Attr = newManager(server)
-		c.OnMessage(onEngineIOClientRecvPacket)
-		c.OnClosed(onEngineIOClientClosed)
+		c.OnMessage(onEngineIOSocketRecvPacket)
+		c.OnClosed(onEngineIOSocketClosed)
 	})
 
 	return

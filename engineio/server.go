@@ -4,21 +4,19 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"sync"
+
+	"github.com/google/uuid"
 )
-
-// import (
-// 	"context"
-// 	"net/http"
-// 	"strconv"
-
-// 	"golang.org/x/net/websocket"
-// )
 
 type Server struct {
 	options EngineIOOptions
 
+	sockets    map[uuid.UUID]*Socket
+	socketsMtx *sync.Mutex
+
 	handlers struct {
-		connection func(*Client)
+		connection func(*Socket)
 	}
 }
 
@@ -28,6 +26,8 @@ func NewServer(opt EngineIOOptions) (server *Server) {
 			PingInterval: opt.PingInterval,
 			PingTimeout:  opt.PingTimeout,
 		},
+		sockets:    map[uuid.UUID]*Socket{},
+		socketsMtx: &sync.Mutex{},
 	}
 
 	return server
@@ -48,22 +48,22 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	sid := req.URL.Query().Get("sid")
 	transport := req.URL.Query().Get("transport")
 
-	client := newClient(server, sid)
-	ctxWithClient := context.WithValue(req.Context(), CtxKeyClient, client)
+	socket := newSocket(server, sid)
+	ctxWithSocket := context.WithValue(req.Context(), ctxKeySocket, socket)
 
 	if transport == "websocket" {
-		client.Transport = TRANSPORT_WEBSOCKET
+		socket.Transport = TRANSPORT_WEBSOCKET
 	}
 
 	switch transport {
 	case "polling":
-		ServePolling(w, req.WithContext(ctxWithClient))
+		ServePolling(w, req.WithContext(ctxWithSocket))
 
 	case "websocket":
-		TransportWebsocketHandler.ServeHTTP(w, req.WithContext(ctxWithClient))
+		TransportWebsocketHandler.ServeHTTP(w, req.WithContext(ctxWithSocket))
 	}
 }
 
-func (server *Server) OnConnection(f func(*Client)) {
+func (server *Server) OnConnection(f func(*Socket)) {
 	server.handlers.connection = f
 }

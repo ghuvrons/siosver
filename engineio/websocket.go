@@ -39,12 +39,12 @@ func wsUnmarshal(msg []byte, payloadType byte, v interface{}) (err error) {
 }
 
 func ServeWebsocket(conn *websocket.Conn) {
-	client := conn.Request().Context().Value(CtxKeyClient).(*Client)
+	socket := conn.Request().Context().Value(ctxKeySocket).(*Socket)
 	message := websocketMessage{}
 	var p *packet
 
 	defer func() {
-		client.close()
+		socket.close()
 		conn.Close()
 	}()
 
@@ -60,9 +60,9 @@ func ServeWebsocket(conn *websocket.Conn) {
 			if _, err := conn.Write([]byte("3probe")); err != nil {
 				return
 			}
-			client.Transport = TRANSPORT_WEBSOCKET
-			if client.isPollingWaiting {
-				client.outbox <- NewPacket(PACKET_NOOP, []byte{})
+			socket.Transport = TRANSPORT_WEBSOCKET
+			if socket.isPollingWaiting {
+				socket.outbox <- NewPacket(PACKET_NOOP, []byte{})
 			}
 
 		case string(PACKET_UPGRADE):
@@ -79,8 +79,8 @@ func ServeWebsocket(conn *websocket.Conn) {
 			conn.Close()
 		}()
 
-		for client.IsConnected {
-			p := <-client.outbox
+		for socket.IsConnected {
+			p := <-socket.outbox
 			if p.packetType == PACKET_PAYLOAD {
 				if err := TransportWebsocket.codec.Send(conn, p.data); err != nil {
 					return
@@ -97,7 +97,7 @@ func ServeWebsocket(conn *websocket.Conn) {
 	}()
 
 	// listener: packet reciever
-	for client.IsConnected {
+	for socket.IsConnected {
 		p = nil
 		if err := TransportWebsocket.codec.Receive(conn, &message); err != nil {
 			return
@@ -120,6 +120,6 @@ func ServeWebsocket(conn *websocket.Conn) {
 			}
 		}
 
-		client.inbox <- p
+		socket.inbox <- p
 	}
 }

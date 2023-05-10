@@ -8,32 +8,32 @@ import (
 
 // Handle transport polling
 func ServePolling(w http.ResponseWriter, req *http.Request) {
-	client, isClientFound := req.Context().Value(CtxKeyClient).(*Client)
+	socket, isSocketFound := req.Context().Value(ctxKeySocket).(*Socket)
 
 	switch req.Method {
 	// listener: packet sender
 	case "GET":
-		if !isClientFound {
+		if !isSocketFound {
 			packet := NewPacket(PACKET_CLOSE, []byte{})
 			w.Write([]byte(packet.encode()))
 			return
 		}
 
-		if client.Transport != TRANSPORT_POLLING {
+		if socket.Transport != TRANSPORT_POLLING {
 			if _, err := w.Write([]byte(NewPacket(PACKET_NOOP, []byte{}).encode())); err != nil {
-				client.close()
+				socket.close()
 				return
 			}
 			return
 		}
 
-		client.isPollingWaiting = true
-		packet := <-client.outbox
+		socket.isPollingWaiting = true
+		packet := <-socket.outbox
 		if _, err := w.Write([]byte(packet.encode())); err != nil {
-			client.close()
+			socket.close()
 			return
 		}
-		client.isPollingWaiting = false
+		socket.isPollingWaiting = false
 
 	// listener: packet reciever
 	case "POST":
@@ -48,7 +48,7 @@ func ServePolling(w http.ResponseWriter, req *http.Request) {
 				break
 			}
 			packet, _ := decodeAsEngineIOPacket(buf)
-			client.inbox <- packet
+			socket.inbox <- packet
 		}
 
 		w.Header().Set("Content-Type", "text/html")

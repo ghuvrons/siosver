@@ -8,7 +8,7 @@ import (
 type Socket struct {
 	id        uuid.UUID
 	server    *Server
-	eioClient *engineio.Client
+	eioSocket *engineio.Socket
 	namespace string
 	tmpPacket *socketIOPacket
 	rooms     map[string]*Room // key: roomName
@@ -25,7 +25,7 @@ func newSocket(namespace string) *Socket {
 	return c
 }
 
-// Handle client's connect request
+// Handle socket's connect request
 func (socket *Socket) connect(conpacket *socketIOPacket) {
 	// do authenticating ...
 	var data interface{}
@@ -33,7 +33,7 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	manager, isOk := socket.eioClient.Attr.(*Manager)
+	manager, isOk := socket.eioSocket.Attr.(*Manager)
 	if isOk && manager.server.authenticator != nil {
 		if !manager.server.authenticator(data) {
 			errConnData := map[string]interface{}{
@@ -66,16 +66,16 @@ func (socket *Socket) send(packet *socketIOPacket) {
 	encodedPacket, buffers := packet.encode()
 
 	if len(buffers) == 0 {
-		socket.eioClient.Send(encodedPacket)
+		socket.eioSocket.Send(encodedPacket)
 
 	} else {
 		// binary message
-		if err := socket.eioClient.Send(encodedPacket); err != nil {
+		if err := socket.eioSocket.Send(encodedPacket); err != nil {
 			return
 		}
 
 		for _, buf := range buffers {
-			if err := socket.eioClient.Send(buf.Bytes()); err != nil {
+			if err := socket.eioSocket.Send(buf.Bytes()); err != nil {
 				return
 			}
 		}

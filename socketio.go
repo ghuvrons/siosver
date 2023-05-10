@@ -8,7 +8,7 @@ import (
 )
 
 type EventResponse []interface{}
-type EventHandler func(client *Socket, args ...interface{}) EventResponse
+type EventHandler func(socket *Socket, args ...interface{}) EventResponse
 
 type Manager struct {
 	server          *Server
@@ -31,8 +31,8 @@ func newManager(server *Server) *Manager {
 	}
 }
 
-func onEngineIOClientRecvPacket(eioClient *engineio.Client, message interface{}) {
-	manager, isOk := eioClient.Attr.(*Manager)
+func onEngineIOSocketRecvPacket(eioSocket *engineio.Socket, message interface{}) {
+	manager, isOk := eioSocket.Attr.(*Manager)
 	if !isOk {
 		return
 	}
@@ -62,7 +62,7 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, message interface{})
 
 			// buffering complete
 			if packet.numOfBuffer == 0 {
-				eioClient.IsReadingPayload = false
+				eioSocket.IsReadingPayload = false
 				manager.bufferingsocket.onMessage(packet)
 				manager.bufferingsocket.tmpPacket = nil
 				manager.bufferingsocket = nil
@@ -81,18 +81,18 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, message interface{})
 	case __SIO_PACKET_CONNECT:
 		socket := newSocket(packet.namespace)
 		socket.server = manager.server
-		socket.eioClient = eioClient
+		socket.eioSocket = eioSocket
 		manager.sockets[packet.namespace] = socket
 		socket.connect(packet)
 		return
 
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT:
-		if eioClient.Attr != nil {
+		if eioSocket.Attr != nil {
 			socket, isFound := manager.sockets[packet.namespace]
 
 			if isFound && socket != nil {
 				if packet.packetType == __SIO_PACKET_BINARY_EVENT {
-					eioClient.IsReadingPayload = true
+					eioSocket.IsReadingPayload = true
 					socket.tmpPacket = packet
 					manager.bufferingsocket = socket
 
@@ -106,8 +106,8 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, message interface{})
 	}
 }
 
-func onEngineIOClientClosed(eioClient *engineio.Client) {
-	if manager, isOk := eioClient.Attr.(*Manager); isOk {
+func onEngineIOSocketClosed(eioSocket *engineio.Socket) {
+	if manager, isOk := eioSocket.Attr.(*Manager); isOk {
 		eventFunc, isEventFound := manager.events["close"]
 
 		for _, socket := range manager.sockets {

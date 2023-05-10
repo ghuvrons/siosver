@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Client struct {
+type Socket struct {
 	server           *Server
 	id               uuid.UUID
 	IsConnected      bool
@@ -19,15 +19,15 @@ type Client struct {
 	IsReadingPayload bool
 
 	handlers struct {
-		message func(*Client, interface{})
-		closed  func(*Client)
+		message func(*Socket, interface{})
+		closed  func(*Socket)
 	}
 
 	// can use for optional attibute
 	Attr interface{}
 }
 
-func newClient(server *Server, id string) *Client {
+func newSocket(server *Server, id string) *Socket {
 	var uid uuid.UUID
 
 	if id == "" {
@@ -36,11 +36,11 @@ func newClient(server *Server, id string) *Client {
 		uid = uuid.MustParse(id)
 	}
 
-	// search client in memory
-	eioClientsMutex.Lock()
-	client, isFound := eioClients[uid]
-	if !isFound || client == nil {
-		client = &Client{
+	// search socket in memory
+	server.socketsMtx.Lock()
+	socket, isFound := server.sockets[uid]
+	if !isFound || socket == nil {
+		socket = &Socket{
 			server:      server,
 			id:          uid,
 			IsConnected: false,
@@ -49,45 +49,45 @@ func newClient(server *Server, id string) *Client {
 			Transport:   TRANSPORT_POLLING,
 		}
 
-		eioClients[uid] = client
+		server.sockets[uid] = socket
 
-		go client.handle()
+		go socket.handle()
 	}
-	eioClientsMutex.Unlock()
+	server.socketsMtx.Unlock()
 
-	return client
+	return socket
 }
 
-// handle client message, ping, etc
-func (client *Client) handle() error {
+// handle socket message, ping, etc
+func (socket *Socket) handle() error {
 	var newPacket *packet
 	var pingTimeoutTimer *time.Timer
 	var err error = nil
 
-	pingIntervalTimer := time.NewTimer(time.Duration(client.server.options.PingInterval) * time.Millisecond)
+	pingIntervalTimer := time.NewTimer(time.Duration(socket.server.options.PingInterval) * time.Millisecond)
 
-	if !client.IsConnected {
-		client.connect()
+	if !socket.IsConnected {
+		socket.connect()
 	}
 
 	for {
 		newPacket = nil
 		if pingTimeoutTimer == nil { // if not pinging
 			select {
-			case newPacket = <-client.inbox:
+			case newPacket = <-socket.inbox:
 				goto handleNewPacket
 
 			case <-pingIntervalTimer.C:
-				pingIntervalTimer.Reset(time.Duration(client.server.options.PingInterval) * time.Millisecond)
-				pingTimeoutTimer = time.NewTimer(time.Duration(client.server.options.PingTimeout) * time.Millisecond)
-				if err = client.sendPacket(NewPacket(PACKET_PING, []byte{})); err != nil {
+				pingIntervalTimer.Reset(time.Duration(socket.server.options.PingInterval) * time.Millisecond)
+				pingTimeoutTimer = time.NewTimer(time.Duration(socket.server.options.PingTimeout) * time.Millisecond)
+				if err = socket.sendPacket(NewPacket(PACKET_PING, []byte{})); err != nil {
 					goto close
 				}
 			}
 
 		} else { // if pinging
 			select {
-			case newPacket = <-client.inbox:
+			case newPacket = <-socket.inbox:
 				goto handleNewPacket
 
 			case <-pingTimeoutTimer.C:
@@ -100,41 +100,41 @@ func (client *Client) handle() error {
 
 	handleNewPacket:
 		if newPacket.packetType == PACKET_MESSAGE {
-			if client.handlers.message != nil {
-				client.handlers.message(client, string(newPacket.data))
+			if socket.handlers.message != nil {
+				socket.handlers.message(socket, string(newPacket.data))
 			}
 		} else if newPacket.packetType == PACKET_PAYLOAD {
-			if client.handlers.message != nil {
-				client.handlers.message(client, newPacket.data)
+			if socket.handlers.message != nil {
+				socket.handlers.message(socket, newPacket.data)
 			}
 		} else if newPacket.packetType == PACKET_PONG {
 			pingTimeoutTimer = nil
 		}
 	}
 
-	// closing client
+	// closing socket
 close:
 	return err
 }
 
-// Handle request connect by client
-func (client *Client) connect() {
+// Handle request connect by socket
+func (socket *Socket) connect() {
 	data := map[string]interface{}{
-		"sid":          client.id.String(),
+		"sid":          socket.id.String(),
 		"upgrades":     []string{"websocket"},
-		"pingInterval": client.server.options.PingInterval,
-		"pingTimeout":  client.server.options.PingTimeout,
+		"pingInterval": socket.server.options.PingInterval,
+		"pingTimeout":  socket.server.options.PingTimeout,
 	}
-	client.IsConnected = true
+	socket.IsConnected = true
 	jsonData, _ := json.Marshal(data)
-	client.sendPacket(NewPacket(PACKET_OPEN, jsonData))
-	if client.server.handlers.connection != nil {
-		client.server.handlers.connection(client)
+	socket.sendPacket(NewPacket(PACKET_OPEN, jsonData))
+	if socket.server.handlers.connection != nil {
+		socket.server.handlers.connection(socket)
 	}
 }
 
-// send to client
-func (client *Client) Send(message interface{}, timeout ...time.Duration) error {
+// Send to socket client
+func (socket *Socket) Send(message interface{}, timeout ...time.Duration) error {
 	var p *packet = &packet{}
 
 	switch data := message.(type) {
@@ -150,20 +150,20 @@ func (client *Client) Send(message interface{}, timeout ...time.Duration) error 
 		return errors.New("not support message")
 	}
 
-	return client.sendPacket(p, timeout...)
+	return socket.sendPacket(p, timeout...)
 }
 
-func (client *Client) sendPacket(p *packet, timeout ...time.Duration) error {
+func (socket *Socket) sendPacket(p *packet, timeout ...time.Duration) error {
 	var timeoutTimer *time.Timer
 
 	if len(timeout) > 0 {
 		timeoutTimer = time.NewTimer(timeout[0])
 	} else {
-		timeoutTimer = time.NewTimer(time.Duration(client.server.options.PingInterval) * time.Millisecond)
+		timeoutTimer = time.NewTimer(time.Duration(socket.server.options.PingInterval) * time.Millisecond)
 	}
 
 	select {
-	case client.outbox <- p:
+	case socket.outbox <- p:
 		return nil
 
 	case <-timeoutTimer.C:
@@ -172,24 +172,24 @@ func (client *Client) sendPacket(p *packet, timeout ...time.Duration) error {
 }
 
 // OnMessage add handler on incoming new message. Second argument can be string or bytes
-func (client *Client) OnMessage(f func(*Client, interface{})) {
-	client.handlers.message = f
+func (socket *Socket) OnMessage(f func(*Socket, interface{})) {
+	socket.handlers.message = f
 }
 
 // OnMessage add handler on incoming new message. Second argument can be string or bytes
-func (client *Client) OnClosed(f func(*Client)) {
-	client.handlers.closed = f
+func (socket *Socket) OnClosed(f func(*Socket)) {
+	socket.handlers.closed = f
 }
 
-func (client *Client) close() {
-	eioClientsMutex.Lock()
-	if !client.IsConnected {
+func (socket *Socket) close() {
+	socket.server.socketsMtx.Lock()
+	if !socket.IsConnected {
 		return
 	}
-	client.IsConnected = false
-	delete(eioClients, client.id)
-	if client.handlers.closed != nil {
-		client.handlers.closed(client)
+	socket.IsConnected = false
+	delete(socket.server.sockets, socket.id)
+	if socket.handlers.closed != nil {
+		socket.handlers.closed(socket)
 	}
-	eioClientsMutex.Unlock()
+	socket.server.socketsMtx.Unlock()
 }
