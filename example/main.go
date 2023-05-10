@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/ghuvrons/siosver"
 )
@@ -12,53 +11,7 @@ type socketIOServer struct {
 	sioServer *siosver.Server
 }
 
-type testruct struct {
-	Hoho interface{}
-	Hihi map[string]interface{}
-}
-
 func main() {
-	myChan := make(chan bool)
-
-	go func() {
-		time.Sleep(time.Duration(1) * time.Millisecond)
-		rname := "task 1"
-		for {
-			time.Sleep(time.Duration(1) * time.Second)
-			fmt.Println(rname, "waiting")
-			<-myChan
-			fmt.Println(rname, "got chan")
-		}
-	}()
-
-	go func() {
-		time.Sleep(time.Duration(2) * time.Millisecond)
-		rname := "task 2"
-		for {
-			time.Sleep(time.Duration(1) * time.Second)
-			fmt.Println(rname, "waiting")
-			<-myChan
-			fmt.Println(rname, "got chan")
-		}
-	}()
-
-	go func() {
-		time.Sleep(time.Duration(3) * time.Millisecond)
-		rname := "task 3"
-		for {
-			time.Sleep(time.Duration(1) * time.Second)
-			fmt.Println(rname, "waiting")
-			<-myChan
-			fmt.Println(rname, "got chan")
-		}
-	}()
-
-	for {
-		myChan <- true
-		fmt.Println("sent to chan")
-		// time.Sleep(time.Duration(1) * time.Second)
-	}
-
 	server := &http.Server{
 		Addr:    ":8000",
 		Handler: socketIOInit(),

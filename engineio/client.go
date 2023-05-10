@@ -13,14 +13,15 @@ type Client struct {
 	id               uuid.UUID
 	IsConnected      bool
 	Transport        TransportType
-	inbox            chan *Packet
-	outbox           chan *Packet
+	inbox            chan *packet
+	outbox           chan *packet
 	isPollingWaiting bool
 	IsReadingPayload bool
 
-	// events
-	OnRecvPacket func(*Client, *Packet)
-	OnClosed     func(*Client)
+	handlers struct {
+		message func(*Client, interface{})
+		closed  func(*Client)
+	}
 
 	// can use for optional attibute
 	Attr interface{}
@@ -43,8 +44,8 @@ func newClient(server *Server, id string) *Client {
 			server:      server,
 			id:          uid,
 			IsConnected: false,
-			inbox:       make(chan *Packet),
-			outbox:      make(chan *Packet),
+			inbox:       make(chan *packet),
+			outbox:      make(chan *packet),
 			Transport:   TRANSPORT_POLLING,
 		}
 		eioClients[uid] = client
@@ -58,7 +59,7 @@ func newClient(server *Server, id string) *Client {
 
 // handle client message, ping, etc
 func (client *Client) handle() error {
-	var newPacket *Packet
+	var newPacket *packet
 	var pingTimeoutTimer *time.Timer
 	var err error = nil
 
@@ -78,7 +79,7 @@ func (client *Client) handle() error {
 			case <-pingIntervalTimer.C:
 				pingIntervalTimer.Reset(time.Duration(client.server.options.PingInterval) * time.Millisecond)
 				pingTimeoutTimer = time.NewTimer(time.Duration(client.server.options.PingTimeout) * time.Millisecond)
-				if err = client.Send(NewPacket(PACKET_PING, []byte{})); err != nil {
+				if err = client.sendPacket(NewPacket(PACKET_PING, []byte{})); err != nil {
 					goto close
 				}
 			}
@@ -97,11 +98,15 @@ func (client *Client) handle() error {
 		continue
 
 	handleNewPacket:
-		if newPacket.Type == PACKET_MESSAGE || newPacket.Type == PACKET_PAYLOAD {
-			if client.OnRecvPacket != nil {
-				client.OnRecvPacket(client, newPacket)
+		if newPacket.packetType == PACKET_MESSAGE {
+			if client.handlers.message != nil {
+				client.handlers.message(client, string(newPacket.data))
 			}
-		} else if newPacket.Type == PACKET_PONG {
+		} else if newPacket.packetType == PACKET_PAYLOAD {
+			if client.handlers.message != nil {
+				client.handlers.message(client, newPacket.data)
+			}
+		} else if newPacket.packetType == PACKET_PONG {
 			pingTimeoutTimer = nil
 		}
 	}
@@ -121,14 +126,33 @@ func (client *Client) connect() {
 	}
 	client.IsConnected = true
 	jsonData, _ := json.Marshal(data)
-	client.Send(NewPacket(PACKET_OPEN, jsonData))
+	client.sendPacket(NewPacket(PACKET_OPEN, jsonData))
 	if client.server.handlers.connection != nil {
 		client.server.handlers.connection(client)
 	}
 }
 
 // send to client
-func (client *Client) Send(packet *Packet, timeout ...time.Duration) error {
+func (client *Client) Send(message interface{}, timeout ...time.Duration) error {
+	var p *packet = &packet{}
+
+	switch data := message.(type) {
+	case string:
+		p.packetType = PACKET_MESSAGE
+		p.data = []byte(data)
+
+	case []byte:
+		p.packetType = PACKET_PAYLOAD
+		p.data = data
+
+	default:
+		return errors.New("not support message")
+	}
+
+	return client.sendPacket(p, timeout...)
+}
+
+func (client *Client) sendPacket(p *packet, timeout ...time.Duration) error {
 	var timeoutTimer *time.Timer
 
 	if len(timeout) > 0 {
@@ -138,12 +162,22 @@ func (client *Client) Send(packet *Packet, timeout ...time.Duration) error {
 	}
 
 	select {
-	case client.outbox <- packet:
+	case client.outbox <- p:
 		return nil
 
 	case <-timeoutTimer.C:
 		return errors.New("timeout")
 	}
+}
+
+// OnMessage add handler on incoming new message. Second argument can be string or bytes
+func (client *Client) OnMessage(f func(*Client, interface{})) {
+	client.handlers.message = f
+}
+
+// OnMessage add handler on incoming new message. Second argument can be string or bytes
+func (client *Client) OnClosed(f func(*Client)) {
+	client.handlers.closed = f
 }
 
 func (client *Client) close() {
@@ -153,8 +187,8 @@ func (client *Client) close() {
 	}
 	client.IsConnected = false
 	delete(eioClients, client.id)
-	if client.OnClosed != nil {
-		client.OnClosed(client)
+	if client.handlers.closed != nil {
+		client.handlers.closed(client)
 	}
 	eioClientsMutex.Unlock()
 }

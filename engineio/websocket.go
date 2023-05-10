@@ -41,7 +41,7 @@ func wsUnmarshal(msg []byte, payloadType byte, v interface{}) (err error) {
 func ServeWebsocket(conn *websocket.Conn) {
 	client := conn.Request().Context().Value(CtxKeyClient).(*Client)
 	message := websocketMessage{}
-	var packet *Packet
+	var p *packet
 
 	defer func() {
 		client.close()
@@ -80,19 +80,25 @@ func ServeWebsocket(conn *websocket.Conn) {
 		}()
 
 		for client.IsConnected {
-			packet := <-client.outbox
-			if _, err := conn.Write(packet.encode(true)); err != nil {
-				return
+			p := <-client.outbox
+			if p.packetType == PACKET_PAYLOAD {
+				if err := TransportWebsocket.codec.Send(conn, p.data); err != nil {
+					return
+				}
+			} else {
+				if err := TransportWebsocket.codec.Send(conn, p.encode()); err != nil {
+					return
+				}
 			}
-			if packet.callback != nil {
-				packet.callback <- true
+			if p.callback != nil {
+				p.callback <- true
 			}
 		}
 	}()
 
 	// listener: packet reciever
 	for client.IsConnected {
-		packet = nil
+		p = nil
 		if err := TransportWebsocket.codec.Receive(conn, &message); err != nil {
 			return
 		}
@@ -103,17 +109,17 @@ func ServeWebsocket(conn *websocket.Conn) {
 
 		// handle incomming packet
 		if message.payloadType == 0x01 { // string message
-			packet = &Packet{
-				Type: eioPacketType(message.message[0]),
-				Data: message.message[1:],
+			p = &packet{
+				packetType: eioPacketType(message.message[0]),
+				data:       message.message[1:],
 			}
 		} else if message.payloadType == 0x02 { // binary message
-			packet = &Packet{
-				Type: PACKET_PAYLOAD,
-				Data: message.message,
+			p = &packet{
+				packetType: PACKET_PAYLOAD,
+				data:       message.message,
 			}
 		}
 
-		client.inbox <- packet
+		client.inbox <- p
 	}
 }

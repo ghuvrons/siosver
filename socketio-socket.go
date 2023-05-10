@@ -64,20 +64,18 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 func (socket *Socket) send(packet *socketIOPacket) {
 	packet.namespace = socket.namespace
 	encodedPacket, buffers := packet.encode()
-	eioPacket := engineio.NewPacket(engineio.PACKET_MESSAGE, encodedPacket)
 
 	if len(buffers) == 0 {
-		socket.eioClient.Send(eioPacket)
+		socket.eioClient.Send(encodedPacket)
 
 	} else {
 		// binary message
-		if err := socket.eioClient.Send(eioPacket); err != nil {
+		if err := socket.eioClient.Send(encodedPacket); err != nil {
 			return
 		}
 
 		for _, buf := range buffers {
-			eioPacket = engineio.NewPacket(engineio.PACKET_PAYLOAD, buf.Bytes())
-			if err := socket.eioClient.Send(eioPacket); err != nil {
+			if err := socket.eioClient.Send(buf.Bytes()); err != nil {
 				return
 			}
 		}

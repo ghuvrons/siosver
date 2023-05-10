@@ -38,8 +38,8 @@ func NewServer(opt ServerOptions) (server *Server) {
 
 	server.engineio.OnConnection(func(c *engineio.Client) {
 		c.Attr = newManager(server)
-		c.OnRecvPacket = onEngineIOClientRecvPacket
-		c.OnClosed = onEngineIOClientClosed
+		c.OnMessage(onEngineIOClientRecvPacket)
+		c.OnClosed(onEngineIOClientClosed)
 	})
 
 	return

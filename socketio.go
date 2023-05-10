@@ -31,19 +31,32 @@ func newManager(server *Server) *Manager {
 	}
 }
 
-func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.Packet) {
+func onEngineIOClientRecvPacket(eioClient *engineio.Client, message interface{}) {
 	manager, isOk := eioClient.Attr.(*Manager)
 	if !isOk {
 		return
 	}
 
-	if eioPacket.Type == engineio.PACKET_PAYLOAD {
+	isBinary := false
+
+	var msgBytes []byte
+	var msgString string
+
+	switch data := message.(type) {
+	case string:
+		msgString = data
+	case []byte:
+		isBinary = true
+		msgBytes = data
+	}
+
+	if isBinary {
 		if manager.bufferingsocket == nil {
 			return
 		}
 
 		if packet := manager.bufferingsocket.tmpPacket; packet != nil && packet.numOfBuffer > 0 {
-			buf := bytes.NewBuffer(eioPacket.Data)
+			buf := bytes.NewBuffer(msgBytes)
 			sioPacketSetBuffer(packet.data, buf)
 			packet.numOfBuffer--
 
@@ -58,7 +71,7 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.
 		return
 	}
 
-	buf := bytes.NewBuffer(eioPacket.Data)
+	buf := bytes.NewBuffer([]byte(msgString))
 	packet := decodeAsSocketIOPacket(buf)
 	if packet == nil {
 		return

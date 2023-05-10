@@ -15,12 +15,12 @@ func ServePolling(w http.ResponseWriter, req *http.Request) {
 	case "GET":
 		if !isClientFound {
 			packet := NewPacket(PACKET_CLOSE, []byte{})
-			w.Write(packet.encode())
+			w.Write([]byte(packet.encode()))
 			return
 		}
 
 		if client.Transport != TRANSPORT_POLLING {
-			if _, err := w.Write(NewPacket(PACKET_NOOP, []byte{}).encode(true)); err != nil {
+			if _, err := w.Write([]byte(NewPacket(PACKET_NOOP, []byte{}).encode())); err != nil {
 				client.close()
 				return
 			}
@@ -29,7 +29,7 @@ func ServePolling(w http.ResponseWriter, req *http.Request) {
 
 		client.isPollingWaiting = true
 		packet := <-client.outbox
-		if _, err := w.Write(packet.encode(true)); err != nil {
+		if _, err := w.Write([]byte(packet.encode())); err != nil {
 			client.close()
 			return
 		}

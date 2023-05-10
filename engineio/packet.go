@@ -21,42 +21,36 @@ const (
 
 const DELIMITER byte = 0x1E
 
-type Packet struct {
-	Type     eioPacketType
-	Data     []byte
-	callback chan bool
+type packet struct {
+	packetType eioPacketType
+	data       []byte
+	callback   chan bool
 }
 
-func NewPacket(packetType eioPacketType, data []byte) *Packet {
-	var packet = &Packet{
-		Type: packetType,
-		Data: data,
+func NewPacket(packetType eioPacketType, data []byte) *packet {
+	return &packet{
+		packetType: packetType,
+		data:       data,
 	}
-	return packet
 }
 
-func (packet *Packet) encode(isBase64 ...bool) []byte {
+func (p *packet) encode() string {
 	buf := bytes.Buffer{}
-	if packet.Type != PACKET_PAYLOAD {
-		buf.WriteByte(byte(packet.Type))
-		buf.Write(packet.Data)
+	if p.packetType != PACKET_PAYLOAD {
+		buf.WriteByte(byte(p.packetType))
+		buf.Write(p.data)
 
 	} else {
-		if len(isBase64) > 0 && isBase64[0] {
-			buf.WriteByte(byte(packet.Type))
-			buf.WriteString(base64.StdEncoding.EncodeToString(packet.Data))
-
-		} else {
-			buf.Write(packet.Data)
-		}
+		buf.WriteByte(byte(p.packetType))
+		buf.WriteString(base64.StdEncoding.EncodeToString(p.data))
 	}
-	return buf.Bytes()
+	return buf.String()
 }
 
 // Decode stream buffer to engineIOPacket.
 // isPayload default is false.
-func decodeAsEngineIOPacket(buf *bytes.Buffer) (*Packet, error) {
-	var packet *Packet
+func decodeAsEngineIOPacket(buf *bytes.Buffer) (*packet, error) {
+	var p *packet
 
 	packetType, err := buf.ReadByte()
 
@@ -64,27 +58,27 @@ func decodeAsEngineIOPacket(buf *bytes.Buffer) (*Packet, error) {
 		return nil, err
 	}
 
-	packet = &Packet{
-		Type: eioPacketType(packetType),
+	p = &packet{
+		packetType: eioPacketType(packetType),
 	}
 
-	packet.Data, err = buf.ReadBytes(DELIMITER)
+	p.data, err = buf.ReadBytes(DELIMITER)
 
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
 	// remove delimiter
-	if lenbytes := len(packet.Data); lenbytes != 0 && packet.Data[lenbytes-1] == DELIMITER {
-		packet.Data = packet.Data[:lenbytes-1]
+	if lenbytes := len(p.data); lenbytes != 0 && p.data[lenbytes-1] == DELIMITER {
+		p.data = p.data[:lenbytes-1]
 	}
 
-	if packet.Type == PACKET_PAYLOAD {
+	if p.packetType == PACKET_PAYLOAD {
 		// decode base64
-		packet.Data, err = base64.StdEncoding.DecodeString(string(packet.Data))
+		p.data, err = base64.StdEncoding.DecodeString(string(p.data))
 		if err != nil {
 			return nil, err
 		}
 	}
-	return packet, nil
+	return p, nil
 }

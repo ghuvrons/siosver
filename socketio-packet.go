@@ -69,7 +69,7 @@ func (packet *socketIOPacket) withAck(ackId int) *socketIOPacket {
 	return packet
 }
 
-func (packet *socketIOPacket) encode() (data []byte, buffers [](*bytes.Buffer)) {
+func (packet *socketIOPacket) encode() (data string, buffers [](*bytes.Buffer)) {
 	// TODO : what if packet type is binary
 
 	buf := bytes.Buffer{}
@@ -109,7 +109,7 @@ func (packet *socketIOPacket) encode() (data []byte, buffers [](*bytes.Buffer)) 
 	rawdata, _ := json.Marshal(packet.data)
 	buf.Write(rawdata)
 
-	data = buf.Bytes()
+	data = buf.String()
 	return
 }
 
