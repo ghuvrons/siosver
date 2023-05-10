@@ -55,7 +55,10 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	if isEventFound && eventFunc != nil {
 		eventFunc(socket)
 	}
+
+	socket.server.socketsMtx.Lock()
 	socket.server.Sockets[socket.id] = socket
+	socket.server.socketsMtx.Unlock()
 }
 
 func (socket *Socket) send(packet *socketIOPacket) {
@@ -68,11 +71,15 @@ func (socket *Socket) send(packet *socketIOPacket) {
 
 	} else {
 		// binary message
-		socket.eioClient.Send(eioPacket, true)
+		if err := socket.eioClient.Send(eioPacket); err != nil {
+			return
+		}
 
 		for _, buf := range buffers {
 			eioPacket = engineio.NewPacket(engineio.PACKET_PAYLOAD, buf.Bytes())
-			socket.eioClient.Send(eioPacket, true)
+			if err := socket.eioClient.Send(eioPacket); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -107,7 +114,10 @@ func (socket *Socket) onMessage(packet *socketIOPacket) {
 }
 
 func (socket *Socket) onClose() {
+	socket.server.socketsMtx.Lock()
 	delete(socket.server.Sockets, socket.id)
+	socket.server.socketsMtx.Unlock()
+
 	for _, room := range socket.rooms {
 		room.leave(socket)
 	}

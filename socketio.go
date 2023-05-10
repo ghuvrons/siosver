@@ -27,7 +27,7 @@ var socketIOBufferIndex = map[string]interface{}{
 func newManager(server *Server) *Manager {
 	return &Manager{
 		server:  server,
-		sockets: map[string]*Socket{},
+		sockets: map[string]*Socket{}, // key: namespaces
 	}
 }
 
@@ -60,6 +60,9 @@ func onEngineIOClientRecvPacket(eioClient *engineio.Client, eioPacket *engineio.
 
 	buf := bytes.NewBuffer(eioPacket.Data)
 	packet := decodeAsSocketIOPacket(buf)
+	if packet == nil {
+		return
+	}
 
 	switch packet.packetType {
 	case __SIO_PACKET_CONNECT:

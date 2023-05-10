@@ -55,18 +55,11 @@ func (packet *Packet) encode(isBase64 ...bool) []byte {
 
 // Decode stream buffer to engineIOPacket.
 // isPayload default is false.
-func decodeAsEngineIOPacket(buf *bytes.Buffer, isPayloads ...bool) (*Packet, error) {
+func decodeAsEngineIOPacket(buf *bytes.Buffer) (*Packet, error) {
 	var packet *Packet
 
-	if len(isPayloads) != 0 && isPayloads[0] {
-		packet = &Packet{
-			Type: PACKET_PAYLOAD,
-			Data: buf.Bytes(),
-		}
-		return packet, nil
-	}
-
 	packetType, err := buf.ReadByte()
+
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +79,8 @@ func decodeAsEngineIOPacket(buf *bytes.Buffer, isPayloads ...bool) (*Packet, err
 		packet.Data = packet.Data[:lenbytes-1]
 	}
 
-	// decode base64
 	if packet.Type == PACKET_PAYLOAD {
+		// decode base64
 		packet.Data, err = base64.StdEncoding.DecodeString(string(packet.Data))
 		if err != nil {
 			return nil, err
