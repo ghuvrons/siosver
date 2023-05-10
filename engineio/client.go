@@ -48,11 +48,12 @@ func newClient(server *Server, id string) *Client {
 			outbox:      make(chan *packet),
 			Transport:   TRANSPORT_POLLING,
 		}
+
 		eioClients[uid] = client
+
+		go client.handle()
 	}
 	eioClientsMutex.Unlock()
-
-	go client.handle()
 
 	return client
 }
