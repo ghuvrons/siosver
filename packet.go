@@ -122,7 +122,7 @@ func decodeToPacket(buf *bytes.Buffer) *packet {
 	}
 
 	typePacket := packetType(tmpTypePacket)
-	packet := newPacket(typePacket)
+	p := newPacket(typePacket)
 
 	for {
 		if buf.Len() == 0 {
@@ -138,7 +138,7 @@ func decodeToPacket(buf *bytes.Buffer) *packet {
 			tmpNamespace, _ := buf.ReadString(byte(','))
 			strLen := len(tmpNamespace)
 			if strLen > 0 {
-				packet.namespace = tmpNamespace[:strLen-1]
+				p.namespace = tmpNamespace[:strLen-1]
 			}
 
 		} else if isSioPacketMessager(typePacket) && tmp >= byte('0') && tmp <= byte('9') {
@@ -147,7 +147,7 @@ func decodeToPacket(buf *bytes.Buffer) *packet {
 			isGetNumOfBinary := false
 
 			// get string bytes
-			if packet.numOfBuffer == 0 && (typePacket == __SIO_PACKET_BINARY_EVENT || typePacket == __SIO_PACKET_BINARY_ACK) {
+			if p.numOfBuffer == 0 && (typePacket == __SIO_PACKET_BINARY_EVENT || typePacket == __SIO_PACKET_BINARY_ACK) {
 				isGetNumOfBinary = true
 				tmpNumber, _ = buf.ReadString('-')
 
@@ -172,16 +172,16 @@ func decodeToPacket(buf *bytes.Buffer) *packet {
 			// save
 			if isGetNumOfBinary {
 				buf.ReadByte()
-				packet.numOfBuffer = number
+				p.numOfBuffer = number
 
 			} else {
-				packet.ackId = number
+				p.ackId = number
 			}
 
 		} else if tmp == byte('{') || tmp == byte('[') {
 			// get data
 			dec := json.NewDecoder(buf)
-			if err := dec.Decode(&(packet.data)); err != nil {
+			if err := dec.Decode(&(p.data)); err != nil {
 				return nil
 			}
 			break
@@ -192,9 +192,9 @@ func decodeToPacket(buf *bytes.Buffer) *packet {
 	}
 
 	// read buffer
-	// TODO : read buffer and add to packet data
+	// TODO : read buffer and add to p data
 
-	return packet
+	return p
 }
 
 // Check is packet type is for messaging

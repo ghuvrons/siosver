@@ -18,13 +18,12 @@ type Sockets map[uuid.UUID]*Socket
 
 // newSocket create new Socket
 func newSocket(server *Server, namespace string) *Socket {
-	var c = &Socket{
+	return &Socket{
 		server:    server,
 		id:        uuid.New(),
 		namespace: namespace,
 		rooms:     map[string]*Room{},
 	}
-	return c
 }
 
 // Handle socket's connect request
