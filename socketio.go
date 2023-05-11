@@ -13,7 +13,6 @@ type EventHandler func(socket *Socket, args ...interface{}) EventResponse
 type Manager struct {
 	server          *Server
 	sockets         map[string]*Socket // key: namespace
-	events          map[string]EventHandler
 	bufferingsocket *Socket
 }
 
@@ -32,7 +31,8 @@ func newManager(server *Server) *Manager {
 }
 
 func onEngineIOSocketRecvPacket(eioSocket *engineio.Socket, message interface{}) {
-	manager, isOk := eioSocket.Attr.(*Manager)
+	manager, isOk := eioSocket.GetCtxValue(managerCtxKey).(*Manager)
+
 	if !isOk {
 		return
 	}
@@ -79,41 +79,33 @@ func onEngineIOSocketRecvPacket(eioSocket *engineio.Socket, message interface{})
 
 	switch packet.packetType {
 	case __SIO_PACKET_CONNECT:
-		socket := newSocket(packet.namespace)
-		socket.server = manager.server
+		socket := newSocket(manager.server, packet.namespace)
 		socket.eioSocket = eioSocket
 		manager.sockets[packet.namespace] = socket
 		socket.connect(packet)
 		return
 
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT:
-		if eioSocket.Attr != nil {
-			socket, isFound := manager.sockets[packet.namespace]
+		socket, isFound := manager.sockets[packet.namespace]
 
-			if isFound && socket != nil {
-				if packet.packetType == __SIO_PACKET_BINARY_EVENT {
-					eioSocket.IsReadingPayload = true
-					socket.tmpPacket = packet
-					manager.bufferingsocket = socket
+		if isFound && socket != nil {
+			if packet.packetType == __SIO_PACKET_BINARY_EVENT {
+				eioSocket.IsReadingPayload = true
+				socket.tmpPacket = packet
+				manager.bufferingsocket = socket
 
-				} else {
-					socket.onMessage(packet)
-				}
-
-				return
+			} else {
+				socket.onMessage(packet)
 			}
+
+			return
 		}
 	}
 }
 
 func onEngineIOSocketClosed(eioSocket *engineio.Socket) {
-	if manager, isOk := eioSocket.Attr.(*Manager); isOk {
-		eventFunc, isEventFound := manager.events["close"]
-
+	if manager, isOk := eioSocket.GetCtxValue(managerCtxKey).(*Manager); isOk {
 		for _, socket := range manager.sockets {
-			if isEventFound && eventFunc != nil {
-				eventFunc(socket)
-			}
 			socket.onClose()
 		}
 	}

@@ -1,6 +1,8 @@
 package engineio
 
-import "golang.org/x/net/websocket"
+import (
+	"golang.org/x/net/websocket"
+)
 
 type websocketMessage struct {
 	payloadType byte
@@ -41,7 +43,7 @@ func wsUnmarshal(msg []byte, payloadType byte, v interface{}) (err error) {
 func ServeWebsocket(conn *websocket.Conn) {
 	socket := conn.Request().Context().Value(ctxKeySocket).(*Socket)
 	message := websocketMessage{}
-	var p *packet
+	closeChan := make(chan error)
 
 	defer func() {
 		socket.close()
@@ -57,7 +59,7 @@ func ServeWebsocket(conn *websocket.Conn) {
 
 		switch string(message.message) {
 		case "2probe":
-			if _, err := conn.Write([]byte("3probe")); err != nil {
+			if err := TransportWebsocket.codec.Send(conn, "3probe"); err != nil {
 				return
 			}
 			socket.Transport = TRANSPORT_WEBSOCKET
@@ -73,14 +75,43 @@ func ServeWebsocket(conn *websocket.Conn) {
 		}
 	}
 
-	// listener: packet sender
-	go func() {
-		defer func() {
-			conn.Close()
-		}()
+	go func(*websocket.Conn, *Socket) {
+		var p *packet
+		message := websocketMessage{}
 
+		// listener: packet reciever
 		for socket.IsConnected {
-			p := <-socket.outbox
+			p = nil
+			if err := TransportWebsocket.codec.Receive(conn, &message); err != nil {
+				closeChan <- err
+				break
+			}
+
+			if len(message.message) == 0 {
+				continue
+			}
+
+			// handle incomming packet
+			if message.payloadType == 0x01 { // string message
+				p = &packet{
+					packetType: eioPacketType(message.message[0]),
+					data:       message.message[1:],
+				}
+			} else if message.payloadType == 0x02 { // binary message
+				p = &packet{
+					packetType: PACKET_PAYLOAD,
+					data:       message.message,
+				}
+			}
+
+			socket.inbox <- p
+		}
+	}(conn, socket)
+
+	// listener: packet sender
+	for socket.IsConnected {
+		select {
+		case p := <-socket.outbox:
 			if p.packetType == PACKET_PAYLOAD {
 				if err := TransportWebsocket.codec.Send(conn, p.data); err != nil {
 					return
@@ -90,36 +121,13 @@ func ServeWebsocket(conn *websocket.Conn) {
 					return
 				}
 			}
+
 			if p.callback != nil {
 				p.callback <- true
 			}
-		}
-	}()
 
-	// listener: packet reciever
-	for socket.IsConnected {
-		p = nil
-		if err := TransportWebsocket.codec.Receive(conn, &message); err != nil {
+		case <-closeChan:
 			return
 		}
-
-		if len(message.message) == 0 {
-			continue
-		}
-
-		// handle incomming packet
-		if message.payloadType == 0x01 { // string message
-			p = &packet{
-				packetType: eioPacketType(message.message[0]),
-				data:       message.message[1:],
-			}
-		} else if message.payloadType == 0x02 { // binary message
-			p = &packet{
-				packetType: PACKET_PAYLOAD,
-				data:       message.message,
-			}
-		}
-
-		socket.inbox <- p
 	}
 }

@@ -1,8 +1,8 @@
 package engineio
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,8 +23,8 @@ type Socket struct {
 		closed  func(*Socket)
 	}
 
-	// can use for optional attibute
-	Attr interface{}
+	ctx           context.Context
+	ctxCancelFunc context.CancelFunc
 }
 
 func newSocket(server *Server, id string) *Socket {
@@ -40,13 +40,16 @@ func newSocket(server *Server, id string) *Socket {
 	server.socketsMtx.Lock()
 	socket, isFound := server.sockets[uid]
 	if !isFound || socket == nil {
+		ctx, cancelFunc := context.WithCancel(context.Background())
 		socket = &Socket{
-			server:      server,
-			id:          uid,
-			IsConnected: false,
-			inbox:       make(chan *packet),
-			outbox:      make(chan *packet),
-			Transport:   TRANSPORT_POLLING,
+			server:        server,
+			id:            uid,
+			IsConnected:   false,
+			inbox:         make(chan *packet),
+			outbox:        make(chan *packet),
+			Transport:     TRANSPORT_POLLING,
+			ctx:           ctx,
+			ctxCancelFunc: cancelFunc,
 		}
 
 		server.sockets[uid] = socket
@@ -74,6 +77,9 @@ func (socket *Socket) handle() error {
 		newPacket = nil
 		if pingTimeoutTimer == nil { // if not pinging
 			select {
+			case <-socket.ctx.Done():
+				goto close
+
 			case newPacket = <-socket.inbox:
 				goto handleNewPacket
 
@@ -87,11 +93,14 @@ func (socket *Socket) handle() error {
 
 		} else { // if pinging
 			select {
+			case <-socket.ctx.Done():
+				goto close
+
 			case newPacket = <-socket.inbox:
 				goto handleNewPacket
 
 			case <-pingTimeoutTimer.C:
-				err = errors.New("timeout")
+				err = ErrPingTimeout
 				goto close
 			}
 		}
@@ -114,6 +123,15 @@ func (socket *Socket) handle() error {
 
 	// closing socket
 close:
+	socket.server.socketsMtx.Lock()
+
+	socket.IsConnected = false
+	delete(socket.server.sockets, socket.id)
+	if socket.handlers.closed != nil {
+		socket.handlers.closed(socket)
+	}
+
+	socket.server.socketsMtx.Unlock()
 	return err
 }
 
@@ -147,7 +165,7 @@ func (socket *Socket) Send(message interface{}, timeout ...time.Duration) error 
 		p.data = data
 
 	default:
-		return errors.New("not support message")
+		return ErrMessageNotSupported
 	}
 
 	return socket.sendPacket(p, timeout...)
@@ -167,8 +185,17 @@ func (socket *Socket) sendPacket(p *packet, timeout ...time.Duration) error {
 		return nil
 
 	case <-timeoutTimer.C:
-		return errors.New("timeout")
+		return ErrTimeout
 	}
+}
+
+func (socket *Socket) SetCtxValue(key ContextKey, value interface{}) {
+	socket.ctx = context.WithValue(socket.ctx, key, value)
+}
+
+func (socket *Socket) GetCtxValue(key ContextKey) (value interface{}) {
+	value = socket.ctx.Value(key)
+	return
 }
 
 // OnMessage add handler on incoming new message. Second argument can be string or bytes
@@ -182,14 +209,5 @@ func (socket *Socket) OnClosed(f func(*Socket)) {
 }
 
 func (socket *Socket) close() {
-	socket.server.socketsMtx.Lock()
-	if !socket.IsConnected {
-		return
-	}
-	socket.IsConnected = false
-	delete(socket.server.sockets, socket.id)
-	if socket.handlers.closed != nil {
-		socket.handlers.closed(socket)
-	}
-	socket.server.socketsMtx.Unlock()
+	socket.ctxCancelFunc()
 }

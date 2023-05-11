@@ -16,8 +16,9 @@ type Socket struct {
 
 type Sockets map[uuid.UUID]*Socket
 
-func newSocket(namespace string) *Socket {
+func newSocket(server *Server, namespace string) *Socket {
 	var c = &Socket{
+		server:    server,
 		id:        uuid.New(),
 		namespace: namespace,
 		rooms:     map[string]*Room{},
@@ -33,9 +34,9 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	if conpacket.data != nil {
 		data = conpacket.data
 	}
-	manager, isOk := socket.eioSocket.Attr.(*Manager)
-	if isOk && manager.server.authenticator != nil {
-		if !manager.server.authenticator(data) {
+
+	if socket.server.authenticator != nil {
+		if !socket.server.authenticator(data) {
 			errConnData := map[string]interface{}{
 				"message": "Not authorized",
 				"data": map[string]interface{}{
@@ -51,7 +52,7 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	// if success
 	socket.send(newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
 
-	eventFunc, isEventFound := manager.server.events["connection"]
+	eventFunc, isEventFound := socket.server.events["connection"]
 	if isEventFound && eventFunc != nil {
 		eventFunc(socket)
 	}

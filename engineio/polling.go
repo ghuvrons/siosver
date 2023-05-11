@@ -28,10 +28,15 @@ func ServePolling(w http.ResponseWriter, req *http.Request) {
 		}
 
 		socket.isPollingWaiting = true
-		packet := <-socket.outbox
-		if _, err := w.Write([]byte(packet.encode())); err != nil {
+		select {
+		case <-req.Context().Done():
 			socket.close()
-			return
+
+		case packet := <-socket.outbox:
+			if _, err := w.Write([]byte(packet.encode())); err != nil {
+				socket.close()
+				return
+			}
 		}
 		socket.isPollingWaiting = false
 

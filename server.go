@@ -15,12 +15,14 @@ type ServerOptions struct {
 
 type Server struct {
 	engineio      *engineio.Server
-	Sockets       Sockets
+	Sockets       Sockets // [TODO] make it private
 	socketsMtx    *sync.Mutex
 	events        map[string]EventHandler
 	Rooms         map[string]*Room // key: roomName
 	authenticator func(interface{}) bool
 }
+
+var managerCtxKey engineio.ContextKey = 0x01
 
 func NewServer(opt ServerOptions) (server *Server) {
 	eioOptions := engineio.EngineIOOptions{
@@ -37,7 +39,7 @@ func NewServer(opt ServerOptions) (server *Server) {
 	}
 
 	server.engineio.OnConnection(func(c *engineio.Socket) {
-		c.Attr = newManager(server)
+		c.SetCtxValue(managerCtxKey, newManager(server))
 		c.OnMessage(onEngineIOSocketRecvPacket)
 		c.OnClosed(onEngineIOSocketClosed)
 	})

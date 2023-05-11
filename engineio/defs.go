@@ -1,8 +1,10 @@
 package engineio
 
-type CtxKey byte
+import "errors"
 
-const ctxKeySocket CtxKey = 0x12
+type ContextKey byte
+
+const ctxKeySocket ContextKey = 0x12
 
 type TransportType byte
 
@@ -15,3 +17,7 @@ type EngineIOOptions struct {
 	PingInterval int
 	PingTimeout  int
 }
+
+var ErrTimeout = errors.New("Socket timeout")
+var ErrPingTimeout = errors.New("Socket ping timeout")
+var ErrMessageNotSupported = errors.New("message not supported")
