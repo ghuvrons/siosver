@@ -6,21 +6,21 @@ import (
 	"testing"
 )
 
-func Test_decodeAsSocketIOPacket(t *testing.T) {
+func Test_decodeAspacket(t *testing.T) {
 	type args struct {
 		b []byte
 	}
 	tests := []struct {
 		name string
 		args args
-		want *socketIOPacket
+		want *packet
 	}{
 		{
 			name: "Connect packet",
 			args: args{
 				b: []byte(`0{"token":"123"}`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_CONNECT,
 				ackId:      -1,
 				data:       map[string]interface{}{"token": "123"},
@@ -31,7 +31,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`0/admin,{"token":"123"}`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_CONNECT,
 				ackId:      -1,
 				namespace:  "admin",
@@ -43,7 +43,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`1/admin,`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_DISCONNECT,
 				ackId:      -1,
 				namespace:  "admin",
@@ -54,7 +54,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`2["hello",1]`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_EVENT,
 				ackId:      -1,
 				data:       []interface{}{"hello", 1.0},
@@ -65,7 +65,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`2/admin,456["project:delete",123]`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_EVENT,
 				ackId:      456,
 				namespace:  "admin",
@@ -77,7 +77,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`3/admin,456[]`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_ACK,
 				ackId:      456,
 				namespace:  "admin",
@@ -89,7 +89,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`4/admin,{"message":"Not authorized"}`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_ACK,
 				ackId:      -1,
 				namespace:  "admin",
@@ -101,7 +101,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`51-["hello",{"_placeholder":true,"num":0}]ABCD`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_BINARY_EVENT,
 				ackId:      -1,
 				data:       []interface{}{"hello", []byte("ABCD")},
@@ -112,7 +112,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`51-/admin,456["project:delete",{"_placeholder":true,"num":0}]ABCD`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_BINARY_EVENT,
 				ackId:      456,
 				namespace:  "admin",
@@ -124,7 +124,7 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 			args: args{
 				b: []byte(`61-/admin,456[{"_placeholder":true,"num":0}]ABCD`),
 			},
-			want: &socketIOPacket{
+			want: &packet{
 				packetType: __SIO_PACKET_BINARY_ACK,
 				ackId:      456,
 				namespace:  "admin",
@@ -136,17 +136,17 @@ func Test_decodeAsSocketIOPacket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := bytes.NewBuffer(tt.args.b)
-			if got := decodeAsSocketIOPacket(buf); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
+			if got := decodeToPacket(buf); got == nil || !reflect.DeepEqual(got.data, tt.want.data) {
 				// skip binary packet testing
 				if tt.want.packetType == __SIO_PACKET_BINARY_ACK || tt.want.packetType == __SIO_PACKET_BINARY_EVENT {
 					return
 				}
 
 				if got == nil {
-					t.Errorf("decodeAsSocketIOPacket() got nil")
+					t.Errorf("decodeAspacket() got nil")
 					return
 				}
-				t.Errorf("decodeAsSocketIOPacket() = %v, want %v", got, tt.want)
+				t.Errorf("decodeAspacket() = %v, want %v", got, tt.want)
 			}
 		})
 	}

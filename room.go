@@ -15,7 +15,7 @@ func (room *Room) leave(socket *Socket) {
 }
 
 func (room *Room) Emit(arg ...interface{}) {
-	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
+	packet := newPacket(__SIO_PACKET_EVENT, arg...)
 	for _, socket := range room.sockets {
 		socket.send(packet)
 	}

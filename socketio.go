@@ -72,7 +72,7 @@ func onEngineIOSocketRecvPacket(eioSocket *engineio.Socket, message interface{})
 	}
 
 	buf := bytes.NewBuffer([]byte(msgString))
-	packet := decodeAsSocketIOPacket(buf)
+	packet := decodeToPacket(buf)
 	if packet == nil {
 		return
 	}

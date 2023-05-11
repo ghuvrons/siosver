@@ -7,28 +7,28 @@ import (
 	"strconv"
 )
 
-type sioPacketType byte
+type packetType byte
 
 const (
-	__SIO_PACKET_CONNECT       sioPacketType = '0'
-	__SIO_PACKET_DISCONNECT    sioPacketType = '1'
-	__SIO_PACKET_EVENT         sioPacketType = '2'
-	__SIO_PACKET_ACK           sioPacketType = '3'
-	__SIO_PACKET_CONNECT_ERROR sioPacketType = '4'
-	__SIO_PACKET_BINARY_EVENT  sioPacketType = '5'
-	__SIO_PACKET_BINARY_ACK    sioPacketType = '6'
+	__SIO_PACKET_CONNECT       packetType = '0'
+	__SIO_PACKET_DISCONNECT    packetType = '1'
+	__SIO_PACKET_EVENT         packetType = '2'
+	__SIO_PACKET_ACK           packetType = '3'
+	__SIO_PACKET_CONNECT_ERROR packetType = '4'
+	__SIO_PACKET_BINARY_EVENT  packetType = '5'
+	__SIO_PACKET_BINARY_ACK    packetType = '6'
 )
 
-type socketIOPacket struct {
-	packetType  sioPacketType
+type packet struct {
+	packetType  packetType
 	namespace   string
 	ackId       int
 	data        interface{}
 	numOfBuffer int
 }
 
-func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOPacket {
-	packet := &socketIOPacket{
+func newPacket(packetType packetType, data ...interface{}) *packet {
+	p := &packet{
 		packetType: packetType,
 		ackId:      -1,
 	}
@@ -37,39 +37,39 @@ func newSocketIOPacket(packetType sioPacketType, data ...interface{}) *socketIOP
 		switch data[0].(type) {
 		case []interface{}:
 			if len(data) == 1 {
-				packet.data = data[0].([]interface{})
+				p.data = data[0].([]interface{})
 			} else {
-				packet.data = data
+				p.data = data
 			}
 
 		case uint, uint32, uint16, uint8, int, int32, int16, int8, float32, float64, string, bool, nil:
-			packet.data = data
+			p.data = data
 
 		default:
 			if len(data) == 1 {
-				packet.data = data[0]
+				p.data = data[0]
 			} else {
-				packet.data = data
+				p.data = data
 			}
 		}
 	}
-	return packet
+	return p
 }
 
-func (packet *socketIOPacket) withAck(ackId int) *socketIOPacket {
-	packet.ackId = ackId
+func (p *packet) withAck(ackId int) *packet {
+	p.ackId = ackId
 
-	switch packet.data.(type) {
+	switch p.data.(type) {
 	case []interface{}:
 		break
 	default:
-		packet.data = []interface{}{packet.data}
+		p.data = []interface{}{p.data}
 	}
 
-	return packet
+	return p
 }
 
-func (packet *socketIOPacket) encode() (data string, buffers [](*bytes.Buffer)) {
+func (p *packet) encode() (data string, buffers [](*bytes.Buffer)) {
 	// TODO : what if packet type is binary
 
 	buf := bytes.Buffer{}
@@ -77,19 +77,19 @@ func (packet *socketIOPacket) encode() (data string, buffers [](*bytes.Buffer)) 
 	isBinaryPacket := false
 
 	// check buffers data
-	sioPacketGetBuffer(&buffers, &(packet.data))
+	sioPacketGetBuffer(&buffers, &(p.data))
 	if len(buffers) > 0 {
-		switch packet.packetType {
+		switch p.packetType {
 		case __SIO_PACKET_EVENT:
-			packet.packetType = __SIO_PACKET_BINARY_EVENT
+			p.packetType = __SIO_PACKET_BINARY_EVENT
 		case __SIO_PACKET_ACK:
-			packet.packetType = __SIO_PACKET_BINARY_ACK
+			p.packetType = __SIO_PACKET_BINARY_ACK
 		}
 		isBinaryPacket = true
 	}
 
 	// packetType
-	buf.WriteByte(byte(packet.packetType))
+	buf.WriteByte(byte(p.packetType))
 
 	// num of buffers data
 	if isBinaryPacket {
@@ -97,23 +97,23 @@ func (packet *socketIOPacket) encode() (data string, buffers [](*bytes.Buffer)) 
 	}
 
 	// namespace
-	if packet.namespace != "" {
-		fmt.Fprintf(&buf, "/%s,", packet.namespace)
+	if p.namespace != "" {
+		fmt.Fprintf(&buf, "/%s,", p.namespace)
 	}
 
 	// ACK
-	if packet.ackId != -1 {
-		fmt.Fprintf(&buf, "%d", packet.ackId)
+	if p.ackId != -1 {
+		fmt.Fprintf(&buf, "%d", p.ackId)
 	}
 
-	rawdata, _ := json.Marshal(packet.data)
+	rawdata, _ := json.Marshal(p.data)
 	buf.Write(rawdata)
 
 	data = buf.String()
 	return
 }
 
-func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
+func decodeToPacket(buf *bytes.Buffer) *packet {
 	// TODO : return error
 
 	tmpTypePacket, err := buf.ReadByte()
@@ -121,8 +121,8 @@ func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
 		return nil
 	}
 
-	typePacket := sioPacketType(tmpTypePacket)
-	packet := newSocketIOPacket(typePacket)
+	typePacket := packetType(tmpTypePacket)
+	packet := newPacket(typePacket)
 
 	for {
 		if buf.Len() == 0 {
@@ -198,7 +198,7 @@ func decodeAsSocketIOPacket(buf *bytes.Buffer) *socketIOPacket {
 }
 
 // Check is packet type is for messaging
-func isSioPacketMessager(typePacket sioPacketType) bool {
+func isSioPacketMessager(typePacket packetType) bool {
 	switch typePacket {
 	case __SIO_PACKET_EVENT, __SIO_PACKET_BINARY_EVENT, __SIO_PACKET_ACK, __SIO_PACKET_BINARY_ACK:
 		return true

@@ -10,12 +10,13 @@ type Socket struct {
 	server    *Server
 	eioSocket *engineio.Socket
 	namespace string
-	tmpPacket *socketIOPacket
+	tmpPacket *packet
 	rooms     map[string]*Room // key: roomName
 }
 
 type Sockets map[uuid.UUID]*Socket
 
+// newSocket create new Socket
 func newSocket(server *Server, namespace string) *Socket {
 	var c = &Socket{
 		server:    server,
@@ -27,7 +28,7 @@ func newSocket(server *Server, namespace string) *Socket {
 }
 
 // Handle socket's connect request
-func (socket *Socket) connect(conpacket *socketIOPacket) {
+func (socket *Socket) connect(conpacket *packet) {
 	// do authenticating ...
 	var data interface{}
 
@@ -44,13 +45,13 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 					"label": "Invalid credentials",
 				},
 			}
-			socket.send(newSocketIOPacket(__SIO_PACKET_CONNECT_ERROR, errConnData))
+			socket.send(newPacket(__SIO_PACKET_CONNECT_ERROR, errConnData))
 			return
 		}
 	}
 
 	// if success
-	socket.send(newSocketIOPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
+	socket.send(newPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
 
 	eventFunc, isEventFound := socket.server.events["connection"]
 	if isEventFound && eventFunc != nil {
@@ -62,9 +63,9 @@ func (socket *Socket) connect(conpacket *socketIOPacket) {
 	socket.server.socketsMtx.Unlock()
 }
 
-func (socket *Socket) send(packet *socketIOPacket) {
-	packet.namespace = socket.namespace
-	encodedPacket, buffers := packet.encode()
+func (socket *Socket) send(p *packet) {
+	p.namespace = socket.namespace
+	encodedPacket, buffers := p.encode()
 
 	if len(buffers) == 0 {
 		socket.eioSocket.Send(encodedPacket)
@@ -84,12 +85,12 @@ func (socket *Socket) send(packet *socketIOPacket) {
 }
 
 func (socket *Socket) Emit(arg ...interface{}) {
-	socket.send(newSocketIOPacket(__SIO_PACKET_EVENT, arg...))
+	socket.send(newPacket(__SIO_PACKET_EVENT, arg...))
 }
 
-func (socket *Socket) onMessage(packet *socketIOPacket) {
+func (socket *Socket) onMessage(p *packet) {
 	eventFunc, isEventFound := socket.server.events[""]
-	args, isOk := packet.data.([]interface{})
+	args, isOk := p.data.([]interface{})
 
 	if isOk && len(args) > 0 {
 		switch args[0].(type) {
@@ -106,8 +107,8 @@ func (socket *Socket) onMessage(packet *socketIOPacket) {
 
 	if isEventFound && eventFunc != nil {
 		resp := eventFunc(socket, args...)
-		if packet.ackId >= 0 {
-			socket.send(newSocketIOPacket(__SIO_PACKET_ACK, resp...).withAck(packet.ackId))
+		if p.ackId >= 0 {
+			socket.send(newPacket(__SIO_PACKET_ACK, resp...).withAck(p.ackId))
 		}
 	}
 }
@@ -141,7 +142,7 @@ func (socket *Socket) SocketLeave(roomName string) {
 // Broadcasting to Sockets
 
 func (sockets Sockets) Emit(arg ...interface{}) {
-	packet := newSocketIOPacket(__SIO_PACKET_EVENT, arg...)
+	packet := newPacket(__SIO_PACKET_EVENT, arg...)
 	for _, socket := range sockets {
 		socket.send(packet)
 	}
