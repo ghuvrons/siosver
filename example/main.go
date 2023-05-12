@@ -27,24 +27,21 @@ func socketIOInit() http.Handler {
 	// 	return true
 	// })
 
-	io.On("connection", func(socket *siosver.Socket, _ ...interface{}) (resp siosver.EventResponse) {
+	io.OnConnection(func(socket *siosver.Socket) {
 		fmt.Println("new socket", socket)
 
+		socket.On("message", func(data ...interface{}) {
+			fmt.Println("new message", data)
+
+			// cbdata := map[string]interface{}{
+			// 	"data": bytes.NewBuffer([]byte{1, 2, 3}),
+			// }
+			// socket.Emit("test_bin", cbdata)
+		})
 		// cbdata := map[string]interface{}{
 		// 	"data": bytes.NewBuffer([]byte{1, 2, 3}),
 		// }
 		// socket.Emit("test_bin", cbdata)
-		return
-	})
-
-	io.On("message", func(socket *siosver.Socket, data ...interface{}) (resp siosver.EventResponse) {
-		fmt.Println("new message", data)
-
-		// cbdata := map[string]interface{}{
-		// 	"data": bytes.NewBuffer([]byte{1, 2, 3}),
-		// }
-		// socket.Emit("test_bin", cbdata)
-		return
 	})
 
 	h := socketIOServer{}

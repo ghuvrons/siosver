@@ -1,17 +1,29 @@
 package siosver
 
 import (
+	"github.com/ghuvrons/siosver/emitter"
 	"github.com/ghuvrons/siosver/engineio"
 	"github.com/google/uuid"
 )
 
 type Socket struct {
-	id        uuid.UUID
-	server    *Server
-	eioSocket *engineio.Socket
-	namespace string
-	tmpPacket *packet
-	rooms     map[string]*Room // key: roomName
+	id           uuid.UUID
+	server       *Server
+	eioSocket    *engineio.Socket
+	namespace    string
+	eventEmitter *emitter.EventEmitter
+	tmpPacket    *packet
+
+	// when Socket get events with ack. that ACK will be saved to this
+	ackIdHandling int
+
+	handlers struct {
+		disconnecting func(reason int)
+		disconnect    func(reason int)
+	}
+
+	// rooms that connected by this socket
+	rooms map[string]*Room // key: roomName
 }
 
 type Sockets map[uuid.UUID]*Socket
@@ -19,10 +31,11 @@ type Sockets map[uuid.UUID]*Socket
 // newSocket create new Socket
 func newSocket(server *Server, namespace string) *Socket {
 	return &Socket{
-		server:    server,
-		id:        uuid.New(),
-		namespace: namespace,
-		rooms:     map[string]*Room{},
+		server:       server,
+		id:           uuid.New(),
+		namespace:    namespace,
+		eventEmitter: emitter.New(),
+		rooms:        map[string]*Room{},
 	}
 }
 
@@ -52,9 +65,8 @@ func (socket *Socket) connect(conpacket *packet) {
 	// if success
 	socket.send(newPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
 
-	eventFunc, isEventFound := socket.server.events["connection"]
-	if isEventFound && eventFunc != nil {
-		eventFunc(socket)
+	if socket.server.handlers.connection != nil {
+		socket.server.handlers.connection(socket)
 	}
 
 	socket.server.socketsMtx.Lock()
@@ -87,28 +99,52 @@ func (socket *Socket) Emit(arg ...interface{}) {
 	socket.send(newPacket(__SIO_PACKET_EVENT, arg...))
 }
 
+func (socket *Socket) On(event string, f func(...interface{})) {
+	socket.eventEmitter.On(event, f)
+}
+
 func (socket *Socket) onMessage(p *packet) {
-	eventFunc, isEventFound := socket.server.events[""]
 	args, isOk := p.data.([]interface{})
+	defer func() {
+		socket.ackIdHandling = 0
+	}()
 
 	if isOk && len(args) > 0 {
 		switch args[0].(type) {
 		case string:
 			event := args[0].(string)
-			tmpEventFunc, isFound := socket.server.events[event]
-			if isFound {
-				eventFunc = tmpEventFunc
-				isEventFound = isFound
-				args = args[1:]
+
+			if p.ackId >= 0 {
+				socket.ackIdHandling = p.ackId
+				socket.eventEmitter.Emit(event, append(args[1:], socket.callbackAck)...)
+			} else {
+				socket.eventEmitter.Emit(event, args[1:]...)
 			}
 		}
 	}
+}
 
-	if isEventFound && eventFunc != nil {
-		resp := eventFunc(socket, args...)
-		if p.ackId >= 0 {
-			socket.send(newPacket(__SIO_PACKET_ACK, resp...).withAck(p.ackId))
-		}
+func (socket *Socket) callbackAck(arg ...interface{}) {
+	socket.send(newPacket(__SIO_PACKET_ACK, arg...).withAck(socket.ackIdHandling))
+}
+
+func (socket *Socket) Disconnect() {
+	socket.onClosing()
+	socket.send(newPacket(__SIO_PACKET_DISCONNECT))
+	socket.onClose()
+}
+
+func (socket *Socket) OnDisconnecting(f func(reason int)) {
+	socket.handlers.disconnecting = f
+}
+
+func (socket *Socket) OnDisconnect(f func(reason int)) {
+	socket.handlers.disconnect = f
+}
+
+func (socket *Socket) onClosing() {
+	if socket.handlers.disconnecting != nil {
+		socket.handlers.disconnecting(0)
 	}
 }
 
@@ -119,6 +155,10 @@ func (socket *Socket) onClose() {
 
 	for _, room := range socket.rooms {
 		room.leave(socket)
+	}
+
+	if socket.handlers.disconnect != nil {
+		socket.handlers.disconnect(0)
 	}
 }
 
@@ -137,8 +177,6 @@ func (socket *Socket) SocketLeave(roomName string) {
 	}
 	room.leave(socket)
 }
-
-// Broadcasting to Sockets
 
 func (sockets Sockets) Emit(arg ...interface{}) {
 	packet := newPacket(__SIO_PACKET_EVENT, arg...)
