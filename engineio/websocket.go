@@ -64,7 +64,11 @@ func ServeWebsocket(conn *websocket.Conn) {
 			}
 			socket.Transport = TRANSPORT_WEBSOCKET
 			if socket.isPollingWaiting {
-				socket.outbox <- NewPacket(PACKET_NOOP, []byte{})
+				socket.mtx.Lock()
+				if socket.outbox != nil {
+					socket.outbox <- NewPacket(PACKET_NOOP, []byte{})
+				}
+				socket.mtx.Unlock()
 			}
 
 		case string(PACKET_UPGRADE):
@@ -104,7 +108,13 @@ func ServeWebsocket(conn *websocket.Conn) {
 				}
 			}
 
-			socket.inbox <- p
+			select {
+			case <-socket.ctx.Done():
+				continue
+
+			case socket.inbox <- p:
+				continue
+			}
 		}
 	}(conn, socket)
 

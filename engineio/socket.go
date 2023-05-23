@@ -3,6 +3,7 @@ package engineio
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +11,7 @@ import (
 
 type Socket struct {
 	server           *Server
+	mtx              *sync.Mutex
 	id               uuid.UUID
 	IsConnected      bool
 	Transport        TransportType
@@ -43,10 +45,11 @@ func newSocket(server *Server, id string) *Socket {
 		ctx, cancelFunc := context.WithCancel(context.Background())
 		socket = &Socket{
 			server:        server,
+			mtx:           &sync.Mutex{},
 			id:            uid,
 			IsConnected:   false,
 			inbox:         make(chan *packet),
-			outbox:        make(chan *packet),
+			outbox:        make(chan *packet, 4),
 			Transport:     TRANSPORT_POLLING,
 			ctx:           ctx,
 			ctxCancelFunc: cancelFunc,
@@ -73,6 +76,7 @@ func (socket *Socket) handle() error {
 		socket.connect()
 	}
 
+	isChanOk := false
 	for {
 		newPacket = nil
 		if pingTimeoutTimer == nil { // if not pinging
@@ -80,8 +84,10 @@ func (socket *Socket) handle() error {
 			case <-socket.ctx.Done():
 				goto close
 
-			case newPacket = <-socket.inbox:
-				goto handleNewPacket
+			case newPacket, isChanOk = <-socket.inbox:
+				if isChanOk {
+					goto handleNewPacket
+				}
 
 			case <-pingIntervalTimer.C:
 				pingIntervalTimer.Reset(time.Duration(socket.server.options.PingInterval) * time.Millisecond)
@@ -96,8 +102,10 @@ func (socket *Socket) handle() error {
 			case <-socket.ctx.Done():
 				goto close
 
-			case newPacket = <-socket.inbox:
-				goto handleNewPacket
+			case newPacket, isChanOk = <-socket.inbox:
+				if isChanOk {
+					goto handleNewPacket
+				}
 
 			case <-pingTimeoutTimer.C:
 				err = ErrPingTimeout
@@ -172,20 +180,19 @@ func (socket *Socket) Send(message interface{}, timeout ...time.Duration) error 
 }
 
 func (socket *Socket) sendPacket(p *packet, timeout ...time.Duration) error {
-	var timeoutTimer *time.Timer
+	socket.mtx.Lock()
+	defer socket.mtx.Unlock()
 
-	if len(timeout) > 0 {
-		timeoutTimer = time.NewTimer(timeout[0])
-	} else {
-		timeoutTimer = time.NewTimer(time.Duration(socket.server.options.PingInterval) * time.Millisecond)
+	if socket.outbox == nil {
+		return ErrSocketClosed
 	}
 
 	select {
 	case socket.outbox <- p:
 		return nil
 
-	case <-timeoutTimer.C:
-		return ErrTimeout
+	case <-socket.ctx.Done():
+		return ErrSocketClosed
 	}
 }
 
@@ -210,4 +217,9 @@ func (socket *Socket) OnClosed(f func(*Socket)) {
 
 func (socket *Socket) close() {
 	socket.ctxCancelFunc()
+
+	socket.mtx.Lock()
+	close(socket.outbox)
+	socket.outbox = nil
+	socket.mtx.Unlock()
 }

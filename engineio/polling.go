@@ -53,9 +53,16 @@ func ServePolling(w http.ResponseWriter, req *http.Request) {
 				break
 			}
 			packet, _ := decodeAsEngineIOPacket(buf)
-			socket.inbox <- packet
+			select {
+			case <-socket.ctx.Done():
+				goto postDone
+
+			case socket.inbox <- packet:
+				continue
+			}
 		}
 
+	postDone:
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("ok"))
 	}
