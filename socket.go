@@ -65,13 +65,13 @@ func (socket *Socket) connect(conpacket *packet) {
 	// if success
 	socket.send(newPacket(__SIO_PACKET_CONNECT, map[string]interface{}{"sid": socket.id.String()}))
 
-	if socket.server.handlers.connection != nil {
-		socket.server.handlers.connection(socket)
-	}
-
 	socket.server.socketsMtx.Lock()
 	socket.server.Sockets[socket.id] = socket
 	socket.server.socketsMtx.Unlock()
+
+	if socket.server.handlers.connection != nil {
+		go socket.server.handlers.connection(socket)
+	}
 }
 
 func (socket *Socket) send(p *packet) {
